@@ -41,7 +41,8 @@ class MainWindow(QMainWindow):
         self.dirty = False
         self.catalog_dirty = False
         self.setWindowTitle("传奇 BOSS 计时工具")
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint,
+                           self.boss_repository.window_topmost())
         self.resize(1200, 760)
         self.setMinimumSize(980, 580)
         self._build_ui()

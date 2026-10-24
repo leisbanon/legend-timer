@@ -45,6 +45,14 @@ class BossRepository:
             ))
         return bosses
 
+    def window_topmost(self) -> bool:
+        """读取项目原始配置；本地目录缓存不能覆盖这个启动参数。"""
+        payload = JsonStore(self.seed_path).read({})
+        if not isinstance(payload, dict):
+            return True
+        value = payload.get("topmost", True)
+        return value if isinstance(value, bool) else True
+
     def save(self, bosses: list[BossDefinition]) -> None:
         # 保留导入文件的其他顶层字段，旧识别关键词不参与新工具。
         self.store.write({**self.metadata, "version": 3,

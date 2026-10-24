@@ -11,7 +11,7 @@
   "cooldown": 120,
   "voice_soon": true,
   "voice_refresh": true,
-  "topmost": true,
+  "topmost": false,
   "timers": [
     {
       "group": "野外地图",

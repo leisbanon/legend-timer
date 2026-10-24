@@ -37,6 +37,26 @@ def test_invalid_intervals_do_not_break_catalog(tmp_path):
     assert [b.sec for b in BossRepository(tmp_path / "local.json", path).load()] == [0, 0, 0]
 
 
+@pytest.mark.parametrize(("configured", "expected"), [
+    (True, True),
+    (False, False),
+    (None, True),
+    ("false", True),
+])
+def test_window_topmost_uses_project_seed_config(tmp_path, configured, expected):
+    payload = {"timers": [{"name": "测试", "sec": 10}]}
+    if configured is not None:
+        payload["topmost"] = configured
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps(payload), encoding="utf-8")
+    repository = BossRepository(tmp_path / "local.json", seed)
+    assert repository.window_topmost() is expected
+
+    # 即使本地目录数据保存过旧值，启动参数仍以项目配置为准。
+    JsonStore(repository.store.path).write({"topmost": not expected, "timers": payload["timers"]})
+    assert repository.window_topmost() is expected
+
+
 def test_atomic_failure_preserves_original_and_reports_corruption(tmp_path, monkeypatch):
     store = JsonStore(tmp_path / "data.json")
     store.write({"name": "原内容"})
