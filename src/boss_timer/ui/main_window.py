@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_context_menu)
+        self.tree.collapsed.connect(self._collapse_descendants)
         self.tree.viewport().installEventFilter(self)
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         configure_tree_appearance(self.tree)
@@ -139,9 +140,19 @@ class MainWindow(QMainWindow):
             position = event.position().toPoint()
             index = self.tree.indexAt(position)
             # 消费树中的双击事件，防止复选框双击继续触发编辑逻辑。
-            if index.isValid() and index.data(BossTreeModel.BOSS_ROLE):
-                if not self._tree_check_rect(index).contains(position):
-                    self._edit_boss(index)
+            if index.isValid():
+                check_rect = self._tree_check_rect(index)
+                if index.data(BossTreeModel.BOSS_ROLE):
+                    if not check_rect.contains(position):
+                        self._edit_boss(index)
+                elif index.model().rowCount(index) and not check_rect.contains(position):
+                    # 加减号在双击的第一次单击中已自行切换；该区域不再反向切换。
+                    branch_rect = QRect(check_rect.left() - self.tree.indentation(),
+                                        self.tree.visualRect(index).top(),
+                                        self.tree.indentation(),
+                                        self.tree.visualRect(index).height())
+                    if not branch_rect.contains(position):
+                        self.tree.setExpanded(index, not self.tree.isExpanded(index))
             return True
         return super().eventFilter(watched, event)
 
@@ -166,6 +177,15 @@ class MainWindow(QMainWindow):
         text_width = option.fontMetrics.horizontalAdvance(str(index.data()))
         return QRect(text_rect.left(), text_rect.top(),
                      min(text_width, text_rect.width()), text_rect.height())
+
+    def _collapse_descendants(self, index):
+        """父节点收起后清除其所有后代的展开状态。"""
+        model = index.model()
+        for row in range(model.rowCount(index)):
+            child = model.index(row, 0, index)
+            if model.rowCount(child):
+                self._collapse_descendants(child)
+                self.tree.collapse(child)
 
     def _restore_settings(self):
         settings = self.settings_store.read({})

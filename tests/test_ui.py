@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QMenu, QPushButton
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu, QPushButton
 
 from boss_timer.app import resource_path
 from boss_timer.domain.models import BossDefinition
@@ -76,6 +76,9 @@ def test_native_editor_validation_and_only_requested_fields(app):
     app.processEvents()
     assert dialog.name_edit.selectedText() == ""
     assert dialog.focusWidget() is dialog
+    buttons = dialog.findChild(QDialogButtonBox)
+    assert not buttons.button(QDialogButtonBox.StandardButton.Ok).isDefault()
+    assert not buttons.button(QDialogButtonBox.StandardButton.Cancel).isDefault()
     dialog.name_edit.setText(" ")
     dialog._accept()
     assert dialog.result() != QDialog.DialogCode.Accepted
@@ -120,6 +123,44 @@ def test_tree_double_click_edits_only_boss_text(window, app, monkeypatch):
                        pos=blank_position)
     app.processEvents()
     assert opened == [True, True]
+
+
+def test_collapsing_tree_parent_clears_descendant_expansion(window, app):
+    group = next(item for key, item in window.tree_model.nodes.items()
+                 if key.startswith("group:"))
+    child = next(group.child(row) for row in range(group.rowCount())
+                 if group.child(row).rowCount())
+    window.tree.expand(group.index())
+    window.tree.expand(child.index())
+    app.processEvents()
+    assert window.tree.isExpanded(group.index())
+    assert window.tree.isExpanded(child.index())
+
+    window.tree.collapse(group.index())
+    app.processEvents()
+    assert not window.tree.isExpanded(group.index())
+    assert not window.tree.isExpanded(child.index())
+
+    window.tree.expand(group.index())
+    app.processEvents()
+    assert not window.tree.isExpanded(child.index())
+
+
+def test_double_clicking_category_row_toggles_expansion(window, app):
+    group = next(item for key, item in window.tree_model.nodes.items()
+                 if key.startswith("group:"))
+    index = group.index()
+    window.tree.collapse(index)
+    app.processEvents()
+    position = window._tree_text_rect(index).center()
+
+    QTest.mouseDClick(window.tree.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    app.processEvents()
+    assert window.tree.isExpanded(index)
+
+    QTest.mouseDClick(window.tree.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    app.processEvents()
+    assert not window.tree.isExpanded(index)
 
 
 def test_start_pause_resume_expire_and_checkbox_save(window, app, clock):

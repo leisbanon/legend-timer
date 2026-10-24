@@ -1,6 +1,7 @@
 from dataclasses import replace
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout,
 )
@@ -38,13 +39,31 @@ class BossEditorDialog(QDialog):
         self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("确定")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        self.ok_button = ok_button
+        self.cancel_button = cancel_button
+        ok_button.setText("确定")
+        cancel_button.setText("取消")
+        # QDialogButtonBox 默认会把“确定”设为默认按钮并绘制强调色边框。
+        for button in (ok_button, cancel_button):
+            button.setAutoDefault(False)
+            button.setDefault(False)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         # 焦点停留在弹窗本身；用户点击具体控件后再显示其焦点状态。
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        # exec() 建立模态事件循环时可能重新分配默认焦点，显示后再清除一次。
+        QTimer.singleShot(0, self._focus_dialog)
+
+    def _focus_dialog(self):
+        self.ok_button.setDefault(False)
+        self.cancel_button.setDefault(False)
         self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _accept(self):
