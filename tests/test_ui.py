@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu, QPushButton
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu, QMessageBox, QPushButton
 
 from boss_timer.app import resource_path
 from boss_timer.domain.models import BossDefinition
@@ -20,7 +20,7 @@ from boss_timer.ui.models.boss_tree import BossTreeModel
 
 @pytest.fixture
 def window(app, tmp_path, clock):
-    instance = MainWindow(BossRepository(tmp_path / "bosses.json", resource_path()),
+    instance = MainWindow(BossRepository(tmp_path / "boss_catalog.json", resource_path()),
                           ProfileService(ProfileRepository(tmp_path / "profiles.json"), clock),
                           TimerService(clock), JsonStore(tmp_path / "settings.json"))
     instance.show()
@@ -33,6 +33,51 @@ def window(app, tmp_path, clock):
 
 def button(window, text):
     return next(b for b in window.findChildren(QPushButton) if b.text() == text)
+
+
+def test_reset_defaults_requires_confirmation_and_restores_disk_and_ui(window, app, tmp_path, monkeypatch):
+    defaults_bytes = resource_path().read_bytes()
+    default_boss = window.bosses[0]
+    window.bosses[0] = replace(default_boss, sec=17, name="本地改名")
+    window.boss_repository.save(window.bosses)
+    window.boss_repository.save(window.bosses)  # 同时产生旧备份。
+    window._start_boss(window.bosses[0])
+    window.profile_service.save("旧方案", window.timers.snapshot())
+    window.settings_store.write({"expanded": [], "splitter": [500, 500]})
+    legacy = tmp_path / "LegendBossTimer"
+    JsonStore(legacy / "boss_catalog.json").write({"timers": []})
+    window.legacy_data_dir = legacy
+    window._toggle_remaining_sort(3)
+    window.tree_model.item(0).setCheckState(Qt.CheckState.Unchecked)
+    assert window.catalog_save_timer.isActive()
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.No)
+    QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
+    assert window.timers.entries
+    assert window.profile_service.profiles
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes)
+    QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert window.bosses[0] == default_boss
+    assert not window.catalog_save_timer.isActive()
+    assert not window.catalog_dirty
+    assert not window.dirty
+    assert window.active_profile_id is None
+    assert window.table_model.rowCount() == 0
+    assert not window.timers.entries
+    assert not window.profile_service.profiles
+    assert window.profile_service.repository.load() == []
+    assert window.boss_repository.load()[0] == default_boss
+    assert window.table_model.remaining_sort_order == Qt.SortOrder.AscendingOrder
+    assert window.tree.isExpanded(window.tree_model.item(0).index())
+    assert not (legacy / "boss_catalog.json").exists()
+    assert not list(tmp_path.rglob("*.json.bak"))
+    assert resource_path().read_bytes() == defaults_bytes
+    # 恢复后仍可以勾选、保存到本地，根目录默认文件不被改变。
+    window.tree_model.item(0).setCheckState(Qt.CheckState.Unchecked)
+    assert window._persist_catalog()
+    assert resource_path().read_bytes() == defaults_bytes
 
 
 def test_tree_hierarchy_checkbox_propagation_and_absent_levels(app):

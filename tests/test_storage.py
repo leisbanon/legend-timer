@@ -3,11 +3,73 @@ from dataclasses import replace
 
 import pytest
 
-from boss_timer.app import resource_path
+from boss_timer.app import catalog_path, resource_path
 from boss_timer.repositories.boss_repository import BossRepository
 from boss_timer.repositories.json_store import JsonStore, StorageError
 from boss_timer.repositories.profile_repository import ProfileRepository
 from boss_timer.services.profile_service import ProfileService
+from boss_timer.services.local_data import clear_local_config, migrate_local_data
+
+
+def test_source_catalog_uses_local_cache(tmp_path):
+    assert catalog_path(tmp_path) == tmp_path / "boss_catalog.json"
+
+
+def test_local_edits_override_seed_and_do_not_modify_defaults(tmp_path):
+    config = tmp_path / "boss_config.json"
+    JsonStore(config).write({"timers": [{"name": "测试", "sec": 1800}]})
+    repository = BossRepository(catalog_path(tmp_path), config)
+    bosses = repository.load()
+    repository.save([replace(bosses[0], sec=15)])
+    assert BossRepository(catalog_path(tmp_path), config).load()[0].sec == 15
+    assert JsonStore(config).read()["timers"][0]["sec"] == 1800
+
+
+def test_migration_preserves_new_data_and_copies_missing_files(tmp_path):
+    legacy = tmp_path / "LegendBossTimer"
+    JsonStore(legacy / "boss_catalog.json").write({"source": "old"})
+    JsonStore(legacy / "profiles.json").write({"profiles": []})
+    JsonStore(tmp_path / "boss_catalog.json").write({"source": "new"})
+    migrate_local_data(tmp_path, legacy)
+    assert JsonStore(tmp_path / "boss_catalog.json").read() == {"source": "new"}
+    assert JsonStore(tmp_path / "profiles.json").read() == {"profiles": []}
+    assert (legacy / "boss_catalog.json").exists()
+
+
+def test_reset_cleans_both_directories_and_backups_but_keeps_defaults_and_log(tmp_path):
+    legacy = tmp_path / "LegendBossTimer"
+    for directory in (tmp_path, legacy):
+        for name in ("boss_catalog.json", "profiles.json", "settings.json"):
+            store = JsonStore(directory / name)
+            store.write({"old": True})
+            store.write({"old": False})
+    JsonStore(tmp_path / "boss_config.json").write({"default": True})
+    (tmp_path / "app.log").touch()
+    (tmp_path / "boss_catalog-test.tmp").touch()
+    clear_local_config(tmp_path, legacy)
+    assert not list(tmp_path.rglob("*.json.bak"))
+    assert not list(tmp_path.rglob("*.tmp"))
+    assert list(tmp_path.rglob("*.json")) == [tmp_path / "boss_config.json"]
+    assert (tmp_path / "app.log").exists()
+
+
+def test_reset_move_failure_restores_original_files(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    for name in ("boss_catalog.json", "profiles.json"):
+        JsonStore(tmp_path / name).write({"name": name})
+    original_replace = Path.replace
+
+    def fail_profiles(source, target):
+        if source.name == "profiles.json":
+            raise PermissionError("文件占用")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_profiles)
+    with pytest.raises(StorageError):
+        clear_local_config(tmp_path)
+    assert JsonStore(tmp_path / "boss_catalog.json").read() == {"name": "boss_catalog.json"}
+    assert (tmp_path / "profiles.json").exists()
 
 
 def test_real_config_counts_order_and_edit_round_trip(tmp_path):

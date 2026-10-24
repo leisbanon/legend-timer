@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 from dataclasses import replace
+from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QCloseEvent
@@ -17,6 +18,7 @@ from boss_timer.repositories.boss_repository import BossRepository
 from boss_timer.repositories.json_store import JsonStore, StorageError
 from boss_timer.services.profile_service import ProfileService
 from boss_timer.services.timer_service import DuplicateBossError, TimerError, TimerService
+from boss_timer.services.local_data import clear_local_config
 from boss_timer.ui.dialogs.boss_editor import BossEditorDialog
 from boss_timer.ui.dialogs.profile_dialogs import LoadProfileDialog, SaveProfileDialog
 from boss_timer.ui.models.boss_tree import BossTreeModel
@@ -30,12 +32,14 @@ class MainWindow(QMainWindow):
     """负责视图连接；计时与保存规则交给服务、仓储处理。"""
 
     def __init__(self, boss_repository: BossRepository, profile_service: ProfileService,
-                 timer_service: TimerService, settings_store: JsonStore):
+                 timer_service: TimerService, settings_store: JsonStore,
+                 *, legacy_data_dir: Path | None = None):
         super().__init__()
         self.boss_repository = boss_repository
         self.profile_service = profile_service
         self.timers = timer_service
         self.settings_store = settings_store
+        self.legacy_data_dir = legacy_data_dir
         self.bosses = boss_repository.load()
         self.active_profile_id: str | None = None
         self.dirty = False
@@ -70,8 +74,9 @@ class MainWindow(QMainWindow):
         for text, handler, tip in [
             ("全部开始", self._start_all, "恢复右侧列表中所有暂停的计时"),
             ("全部暂停", self._pause_all, "暂停右侧所有正在运行的计时"),
-            ("保存配置", self._save_profile, "保存右侧已勾选的条目"),
+            ("保存配置", self._save_profile, "保存右侧全部计时项目"),
             ("加载配置", self._load_profile, "从本地保存的配置中选择并加载"),
+            ("恢复默认配置", self._reset_defaults, "恢复默认 BOSS 资料，并清空计时、方案及窗口设置"),
         ]:
             button = QPushButton(text)
             button.setMinimumHeight(32)
@@ -144,6 +149,53 @@ class MainWindow(QMainWindow):
                  if current == Qt.SortOrder.AscendingOrder
                  else Qt.SortOrder.AscendingOrder)
         self.table_model.set_remaining_sort_order(order)
+
+    def _reset_defaults(self):
+        answer = QMessageBox.warning(
+            self, "恢复默认配置",
+            "将恢复默认 BOSS 信息与勾选状态，清空右侧计时和所有已保存方案，"
+            "并重置窗口布局、菜单展开历史及排序。\n"
+            "本地新旧目录中的配置、缓存和备份将被清除。是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            # 先验证默认文件，读取失败时不删除用户的任何配置。
+            defaults = BossRepository(self.boss_repository.seed_path, self.boss_repository.seed_path)
+            bosses = defaults.load()
+            topmost = defaults.window_topmost()
+            clear_local_config(self.settings_store.path.parent, self.legacy_data_dir)
+        except (StorageError, OSError) as exc:
+            self._error(str(exc))
+            return
+        self.catalog_save_timer.stop()
+        self.bosses = bosses
+        self.boss_repository.metadata = defaults.metadata
+        self.catalog_dirty = False
+        self.timers.entries.clear()
+        self.profile_service.profiles = []
+        self.active_profile_id = None
+        self.dirty = False
+        old_model = self.tree_model
+        self.tree_model = BossTreeModel(self.bosses, self)
+        self.tree.setModel(self.tree_model)
+        self.tree_model.checkedChanged.connect(self._checked_changed)
+        old_model.deleteLater()
+        self.table_model.set_remaining_sort_order(Qt.SortOrder.AscendingOrder)
+        self._refresh_table()
+        self.showNormal()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, topmost)
+        self.resize(1200, 760)
+        screen = self.screen().availableGeometry()
+        self.move(screen.center() - self.rect().center())
+        self.splitter.setSizes([335, 829])
+        self._restore_settings()
+        self.tree.verticalScrollBar().setValue(0)
+        self.table.verticalScrollBar().setValue(0)
+        self.show()
+        logger.info("已恢复默认配置并清除新旧本地配置及备份")
 
     def eventFilter(self, watched, event):
         if (watched is self.tree.viewport() and
@@ -335,7 +387,7 @@ class MainWindow(QMainWindow):
     def _save_profile(self) -> bool:
         payload = self.timers.snapshot()
         if not payload:
-            self._error("请先添加计时，并至少勾选右侧一条记录。")
+            self._error("请先添加计时。")
             return False
         current = self.profile_service.find(self.active_profile_id)
         dialog = SaveProfileDialog(current, len(payload), self)

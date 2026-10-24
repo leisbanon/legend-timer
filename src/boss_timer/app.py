@@ -15,6 +15,7 @@ from boss_timer.repositories.json_store import JsonStore, StorageError
 from boss_timer.repositories.profile_repository import ProfileRepository
 from boss_timer.services.profile_service import ProfileService
 from boss_timer.services.timer_service import TimerService
+from boss_timer.services.local_data import migrate_local_data
 from boss_timer.ui.fonts import configure_application_font
 from boss_timer.ui.main_window import MainWindow
 
@@ -26,13 +27,18 @@ def resource_path() -> Path:
     return Path(__file__).resolve().parents[2] / "boss_config.json"
 
 
+def catalog_path(data_dir: Path) -> Path:
+    return data_dir / "boss_catalog.json"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="传奇 BOSS 计时工具")
     parser.add_argument("--data-dir", type=Path, help="指定独立的数据目录")
     parser.add_argument("--smoke-test", type=Path, metavar="PNG", help="以隔离数据启动、截图并自动退出")
     args = parser.parse_args()
     app = QApplication(sys.argv[:1])
-    app.setOrganizationName("LegendBossTimer")
+    # 留空组织名，避免 Qt 生成 LegendBossTimer/LegendBossTimer 双层目录。
+    app.setOrganizationName("")
     app.setApplicationName("LegendBossTimer")
     app.setApplicationDisplayName("传奇 BOSS 计时工具")
     configure_application_font(app)
@@ -49,9 +55,21 @@ def main() -> int:
         if not lock.tryLock(100):
             QMessageBox.information(None, "传奇 BOSS 计时工具", "程序已在运行，请切换到已有窗口。")
             return 0
+        legacy_dir = None
+        legacy_lock = None
+        if not args.data_dir and not args.smoke_test:
+            legacy_dir = data_dir / "LegendBossTimer"
+            if legacy_dir.is_dir():
+                legacy_lock = QLockFile(str(legacy_dir / "app.lock"))
+                if not legacy_lock.tryLock(100):
+                    QMessageBox.information(None, "传奇 BOSS 计时工具", "旧版程序仍在运行，请先关闭后再启动。")
+                    return 0
+                migrate_local_data(data_dir, legacy_dir)
         profiles = ProfileService(ProfileRepository(data_dir / "profiles.json"))
-        window = MainWindow(BossRepository(data_dir / "boss_catalog.json", resource_path()),
-                            profiles, TimerService(), JsonStore(data_dir / "settings.json"))
+        window = MainWindow(BossRepository(
+            catalog_path(data_dir), resource_path()),
+                            profiles, TimerService(), JsonStore(data_dir / "settings.json"),
+                            legacy_data_dir=legacy_dir)
     except (OSError, StorageError) as exc:
         QMessageBox.critical(None, "启动失败", str(exc))
         return 1
@@ -91,6 +109,8 @@ def main() -> int:
         QTimer.singleShot(1000, capture)
     result = app.exec()
     lock.unlock()
+    if legacy_lock is not None:
+        legacy_lock.unlock()
     logging.shutdown()
     if temporary:
         temporary.cleanup()
