@@ -45,9 +45,19 @@ def test_tree_hierarchy_checkbox_propagation_and_absent_levels(app):
     group = model.item(0)
     group.setCheckState(Qt.CheckState.Unchecked)
     assert model.checked_ids() == {"c"}
-    model.boss_items["a"].setCheckState(Qt.CheckState.Checked)
+    assert all(group.child(row).checkState() == Qt.CheckState.Unchecked
+               for row in range(group.rowCount()))
+    group.setCheckState(Qt.CheckState.Checked)
+    assert model.checked_ids() == {"a", "b", "c"}
+    map_item = group.child(0)
+    map_item.setCheckState(Qt.CheckState.Unchecked)
+    assert model.checked_ids() == {"c"}
+    map_item.setCheckState(Qt.CheckState.Checked)
+    assert model.checked_ids() == {"a", "b", "c"}
+    model.boss_items["a"].setCheckState(Qt.CheckState.Unchecked)
+    assert map_item.checkState() == Qt.CheckState.PartiallyChecked
     assert group.checkState() == Qt.CheckState.PartiallyChecked
-    assert model.checked_ids() == {"a", "c"}
+    assert model.checked_ids() == {"b", "c"}
 
 
 def test_native_editor_validation_and_only_requested_fields(app):
@@ -164,7 +174,8 @@ def test_all_buttons_and_close_without_save_prompt(window, app, monkeypatch):
     assert not window.isVisible()
     assert not window.tick_timer.isActive()
     assert window.profile_service.profiles == []
-    assert window.settings_store.read()["topmost"] == window.topmost_check.isChecked()
+    assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert "topmost" not in window.settings_store.read()
     assert not window.catalog_dirty
 
 

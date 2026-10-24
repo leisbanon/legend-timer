@@ -39,7 +39,8 @@ class BossTreeModel(QStandardItemModel):
             self.boss_items[boss.id] = item
             self.update_boss(boss)
         self._recompute(root)
-        self.itemChanged.connect(self._on_item_changed)
+        # 只监听复选框角色，文字和提示变化不能触发勾选传播。
+        self.dataChanged.connect(self._on_data_changed)
 
     def _category(self, text: str, key: str, parent: QStandardItem) -> QStandardItem:
         item = QStandardItem(text)
@@ -62,7 +63,14 @@ class BossTreeModel(QStandardItemModel):
         states = {item.child(row).checkState() for row in range(item.rowCount())}
         item.setCheckState(states.pop() if len(states) == 1 else Qt.CheckState.PartiallyChecked)
 
-    def _on_item_changed(self, item: QStandardItem) -> None:
+    def _on_data_changed(self, top_left, bottom_right, roles) -> None:
+        if roles and Qt.ItemDataRole.CheckStateRole not in roles:
+            return
+        if top_left != bottom_right:
+            return
+        item = self.itemFromIndex(top_left)
+        if item is None or not item.isCheckable():
+            return
         with QSignalBlocker(self):
             if item.rowCount():
                 state = (Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Unchecked

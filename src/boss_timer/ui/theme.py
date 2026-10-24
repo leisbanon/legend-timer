@@ -18,7 +18,6 @@ class SimpleCheckboxStyle(QProxyStyle):
     """绘制简约黑白复选框及加减号树节点，其余交给系统样式。"""
 
     _checkbox_icons: dict[tuple[bool, bool, int], QSvgRenderer] = {}
-    _branch_icons: dict[tuple[bool, bool], QSvgRenderer] = {}
 
     def __init__(self, parent, *, suppress_focus_frame: bool = False):
         # 创建独立的原生样式实例，避免接管 QApplication 的共享样式。
@@ -39,8 +38,6 @@ class SimpleCheckboxStyle(QProxyStyle):
         if (self._suppress_focus_frame and
                 element == QStyle.PrimitiveElement.PE_FrameFocusRect):
             return
-        if element == QStyle.PrimitiveElement.PE_IndicatorBranch:
-            return self._draw_branch(option, painter)
         if element not in (QStyle.PrimitiveElement.PE_IndicatorCheckBox,
                            QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck):
             return super().drawPrimitive(element, option, painter, widget)
@@ -73,38 +70,6 @@ class SimpleCheckboxStyle(QProxyStyle):
         target.moveCenter(QRectF(option.rect).center())
         renderer.render(painter, target)
 
-    @staticmethod
-    def _draw_branch(option, painter) -> None:
-        """使用 SVG 绘制线宽稳定、与复选框协调的加号/减号。"""
-        if not option.state & QStyle.StateFlag.State_Children:
-            return
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        opened = bool(option.state & QStyle.StateFlag.State_Open)
-        key = (selected, opened)
-        renderer = SimpleCheckboxStyle._branch_icons.get(key)
-        if renderer is None:
-            border = "#a8a8a8" if selected else "#9a9a9a"
-            symbol = "#555555" if selected else "#666666"
-            vertical = "" if opened else '<path d="M6.5 3.7V9.3"/>'
-            svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                viewBox="0 0 13 13" fill="none" stroke-width="1"
-                stroke-linecap="square" stroke-linejoin="miter">
-                <defs><linearGradient id="button" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stop-color="#ffffff"/>
-                    <stop offset="0.55" stop-color="#f3f3f3"/>
-                    <stop offset="1" stop-color="#e4e4e4"/>
-                </linearGradient></defs>
-                <rect x="1.1" y="1.1" width="10.8" height="10.8"
-                    fill="url(#button)" stroke="{border}"/>
-                <g stroke="{symbol}"><path d="M3.7 6.5H9.3"/>{vertical}</g>
-            </svg>"""
-            renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-            SimpleCheckboxStyle._branch_icons[key] = renderer
-        target = QRectF(0, 0, CHECKBOX_SIZE, CHECKBOX_SIZE)
-        target.moveCenter(QRectF(option.rect).center())
-        renderer.render(painter, target)
-
-
 def configure_checkbox_appearance(widget, *, suppress_focus_frame: bool = False) -> None:
     style = SimpleCheckboxStyle(widget, suppress_focus_frame=suppress_focus_frame)
     # QWidget 不接管样式所有权；父子关系和引用共同保证其生命周期。
@@ -118,6 +83,8 @@ class FlatRowDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         flat_option = QStyleOptionViewItem(option)
         flat_option.state &= ~QStyle.StateFlag.State_HasFocus
+        # 鼠标经过只用于定位和提示，不绘制类似“已选中”的灰色背景。
+        flat_option.state &= ~QStyle.StateFlag.State_MouseOver
         flat_option.showDecorationSelected = True
         super().paint(painter, flat_option, index)
 
@@ -150,11 +117,19 @@ def configure_tree_appearance(tree) -> None:
     configure_checkbox_appearance(tree, suppress_focus_frame=True)
     _configure_selection(tree, "QTreeView")
     icon_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
+    normal_closed_icon = (icon_dir / "branch_closed.svg").as_posix()
+    normal_open_icon = (icon_dir / "branch_open.svg").as_posix()
     closed_icon = (icon_dir / "branch_closed_selected.svg").as_posix()
     open_icon = (icon_dir / "branch_open_selected.svg").as_posix()
     tree.setStyleSheet(tree.styleSheet() + f"""
         QTreeView {{ show-decoration-selected: 1; }}
         QTreeView::branch:selected {{ background-color: {BLUE}; }}
+        QTreeView::branch:has-children:closed {{
+            image: url("{normal_closed_icon}");
+        }}
+        QTreeView::branch:has-children:open {{
+            image: url("{normal_open_icon}");
+        }}
         QTreeView::branch:selected:has-children:closed {{
             image: url("{closed_icon}");
         }}

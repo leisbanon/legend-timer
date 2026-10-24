@@ -7,7 +7,7 @@ from dataclasses import replace
 from PySide6.QtCore import QByteArray, QTimer, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter,
     QTableView, QTreeView, QVBoxLayout, QWidget,
 )
@@ -21,9 +21,7 @@ from boss_timer.ui.dialogs.boss_editor import BossEditorDialog
 from boss_timer.ui.dialogs.profile_dialogs import LoadProfileDialog, SaveProfileDialog
 from boss_timer.ui.models.boss_tree import BossTreeModel
 from boss_timer.ui.models.timer_table import TimerTableModel
-from boss_timer.ui.theme import (
-    configure_checkbox_appearance, configure_table_appearance, configure_tree_appearance,
-)
+from boss_timer.ui.theme import configure_table_appearance, configure_tree_appearance
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +41,7 @@ class MainWindow(QMainWindow):
         self.dirty = False
         self.catalog_dirty = False
         self.setWindowTitle("传奇 BOSS 计时工具")
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(1200, 760)
         self.setMinimumSize(980, 580)
         self._build_ui()
@@ -66,11 +65,6 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
         toolbar = QHBoxLayout()
         toolbar.setSpacing(12)
-        self.topmost_check = QCheckBox("置顶")
-        configure_checkbox_appearance(self.topmost_check)
-        self.topmost_check.setToolTip("让本窗口保持在其他窗口上方")
-        self.topmost_check.toggled.connect(self._set_topmost)
-        toolbar.addWidget(self.topmost_check)
         toolbar.addStretch()
         for text, handler, tip in [
             ("全部开始", self._start_all, "添加左侧已勾选的 BOSS，并恢复右侧暂停的计时；同名条目不会重复添加"),
@@ -99,6 +93,7 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setIndentation(22)
+        self.tree.setMouseTracking(False)
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -161,14 +156,6 @@ class MainWindow(QMainWindow):
             first = next((item for key, item in self.tree_model.nodes.items() if key.startswith("map:")), None)
             if first is not None:
                 self.tree.expand(first.index())
-        self.topmost_check.setChecked(bool(settings.get("topmost", self.boss_repository.metadata.get("topmost", False))))
-
-    def _set_topmost(self, enabled: bool):
-        visible = self.isVisible()
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
-        if visible:
-            self.show()
-
     def _find_boss(self, boss_id: str) -> BossDefinition:
         return next(boss for boss in self.bosses if boss.id == boss_id)
 
@@ -395,7 +382,6 @@ class MainWindow(QMainWindow):
             self.settings_store.write({
                 "geometry": base64.b64encode(bytes(self.saveGeometry())).decode("ascii"),
                 "splitter": self.splitter.sizes(),
-                "topmost": self.topmost_check.isChecked(),
                 "expanded": [key for key, item in self.tree_model.nodes.items()
                              if self.tree.isExpanded(item.index())],
             })
