@@ -16,6 +16,7 @@ class BossTreeModel(QStandardItemModel):
         self.setHorizontalHeaderLabels(["地图 / BOSS"])
         self.boss_items: dict[str, QStandardItem] = {}
         self.nodes: dict[str, QStandardItem] = {}
+        self._syncing_checks = False
         groups: dict[str, QStandardItem] = {}
         maps: dict[tuple[str, str], QStandardItem] = {}
         root = self.invisibleRootItem()
@@ -64,6 +65,8 @@ class BossTreeModel(QStandardItemModel):
         item.setCheckState(states.pop() if len(states) == 1 else Qt.CheckState.PartiallyChecked)
 
     def _on_data_changed(self, top_left, bottom_right, roles) -> None:
+        if self._syncing_checks:
+            return
         if roles and Qt.ItemDataRole.CheckStateRole not in roles:
             return
         if top_left != bottom_right:
@@ -71,7 +74,10 @@ class BossTreeModel(QStandardItemModel):
         item = self.itemFromIndex(top_left)
         if item is None or not item.isCheckable():
             return
-        with QSignalBlocker(self):
+        # 使用状态标记阻止递归处理，但不屏蔽 dataChanged 信号；视图因此会
+        # 立即重绘每个被同步的子项，无需等待鼠标移动触发刷新。
+        self._syncing_checks = True
+        try:
             if item.rowCount():
                 state = (Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Unchecked
                          else Qt.CheckState.Checked)
@@ -80,6 +86,8 @@ class BossTreeModel(QStandardItemModel):
             while parent is not None:
                 self._set_parent_state(parent)
                 parent = parent.parent()
+        finally:
+            self._syncing_checks = False
         self.checkedChanged.emit()
 
     def _propagate(self, item: QStandardItem, state: Qt.CheckState) -> None:

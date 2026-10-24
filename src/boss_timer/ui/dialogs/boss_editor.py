@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout,
 )
@@ -42,7 +43,9 @@ class BossEditorDialog(QDialog):
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.name_edit.selectAll()
+        # 焦点停留在弹窗本身；用户点击具体控件后再显示其焦点状态。
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _accept(self):
         if not self.name_edit.text().strip():

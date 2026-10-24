@@ -4,12 +4,12 @@ import base64
 import logging
 from dataclasses import replace
 
-from PySide6.QtCore import QByteArray, QTimer, Qt
+from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter,
-    QTableView, QTreeView, QVBoxLayout, QWidget,
+    QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle,
+    QStyleOptionViewItem, QTableView, QTreeView, QVBoxLayout, QWidget,
 )
 
 from boss_timer.domain.models import BossDefinition, TimerState
@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_context_menu)
-        self.tree.doubleClicked.connect(self._edit_boss)
+        self.tree.viewport().installEventFilter(self)
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         configure_tree_appearance(self.tree)
         left_layout.addWidget(self.tree, 1)
@@ -131,6 +131,41 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([335, 829])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.tree.viewport() and
+                event.type() == QEvent.Type.MouseButtonDblClick and
+                event.button() == Qt.MouseButton.LeftButton):
+            position = event.position().toPoint()
+            index = self.tree.indexAt(position)
+            # 消费树中的双击事件，防止复选框双击继续触发编辑逻辑。
+            if index.isValid() and index.data(BossTreeModel.BOSS_ROLE):
+                if not self._tree_check_rect(index).contains(position):
+                    self._edit_boss(index)
+            return True
+        return super().eventFilter(watched, event)
+
+    def _tree_item_option(self, index) -> QStyleOptionViewItem:
+        option = QStyleOptionViewItem()
+        self.tree.itemDelegateForIndex(index).initStyleOption(option, index)
+        option.rect = self.tree.visualRect(index)
+        return option
+
+    def _tree_check_rect(self, index) -> QRect:
+        option = self._tree_item_option(index)
+        return self.tree.style().subElementRect(
+            QStyle.SubElement.SE_ItemViewItemCheckIndicator, option, self.tree
+        )
+
+    def _tree_text_rect(self, index) -> QRect:
+        """返回名称文字的实际点击区域，不包含复选框和行内空白。"""
+        option = self._tree_item_option(index)
+        text_rect = self.tree.style().subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, option, self.tree
+        )
+        text_width = option.fontMetrics.horizontalAdvance(str(index.data()))
+        return QRect(text_rect.left(), text_rect.top(),
+                     min(text_width, text_rect.width()), text_rect.height())
 
     def _restore_settings(self):
         settings = self.settings_store.read({})

@@ -42,13 +42,22 @@ def test_tree_hierarchy_checkbox_propagation_and_absent_levels(app):
         BossDefinition("c", "", "", "直接挂载", 10, "直接挂载"),
     ])
     assert model.rowCount() == 2
+    changed_indexes = []
+    model.dataChanged.connect(
+        lambda top_left, _bottom_right, _roles: changed_indexes.append(top_left)
+    )
     group = model.item(0)
     group.setCheckState(Qt.CheckState.Unchecked)
     assert model.checked_ids() == {"c"}
+    assert model.boss_items["a"].index() in changed_indexes
+    assert model.boss_items["b"].index() in changed_indexes
     assert all(group.child(row).checkState() == Qt.CheckState.Unchecked
                for row in range(group.rowCount()))
+    changed_indexes.clear()
     group.setCheckState(Qt.CheckState.Checked)
     assert model.checked_ids() == {"a", "b", "c"}
+    assert model.boss_items["a"].index() in changed_indexes
+    assert model.boss_items["b"].index() in changed_indexes
     map_item = group.child(0)
     map_item.setCheckState(Qt.CheckState.Unchecked)
     assert model.checked_ids() == {"c"}
@@ -63,6 +72,10 @@ def test_tree_hierarchy_checkbox_propagation_and_absent_levels(app):
 def test_native_editor_validation_and_only_requested_fields(app):
     boss = BossDefinition("one", "野外地图", "藏剑山庄", "雷炎蛛王", 1800, "雷炎蛛王")
     dialog = BossEditorDialog(boss)
+    dialog.show()
+    app.processEvents()
+    assert dialog.name_edit.selectedText() == ""
+    assert dialog.focusWidget() is dialog
     dialog.name_edit.setText(" ")
     dialog._accept()
     assert dialog.result() != QDialog.DialogCode.Accepted
@@ -72,6 +85,41 @@ def test_native_editor_validation_and_only_requested_fields(app):
     dialog._accept()
     assert dialog.result() == QDialog.DialogCode.Accepted
     assert dialog.definition() == replace(boss, name="新怪物", sec=90, tip="刷新提示")
+
+
+def test_tree_double_click_edits_only_boss_text(window, app, monkeypatch):
+    item = window.tree_model.boss_items[window.bosses[0].id]
+    parent = item.parent()
+    while parent is not None:
+        window.tree.expand(parent.index())
+        parent = parent.parent()
+    app.processEvents()
+
+    opened = []
+
+    def reject_editor(_dialog):
+        opened.append(True)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(BossEditorDialog, "exec", reject_editor)
+    index = item.index()
+    QTest.mouseDClick(window.tree.viewport(), Qt.MouseButton.LeftButton,
+                       pos=window._tree_check_rect(index).center())
+    app.processEvents()
+    assert opened == []
+
+    QTest.mouseDClick(window.tree.viewport(), Qt.MouseButton.LeftButton,
+                       pos=window._tree_text_rect(index).center())
+    app.processEvents()
+    assert opened == [True]
+
+    blank_position = window.tree.visualRect(index).center()
+    if window._tree_text_rect(index).contains(blank_position):
+        blank_position.setX(window.tree.visualRect(index).right() - 8)
+    QTest.mouseDClick(window.tree.viewport(), Qt.MouseButton.LeftButton,
+                       pos=blank_position)
+    app.processEvents()
+    assert opened == [True, True]
 
 
 def test_start_pause_resume_expire_and_checkbox_save(window, app, clock):
