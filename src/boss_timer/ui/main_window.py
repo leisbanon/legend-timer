@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
         toolbar.setSpacing(12)
         toolbar.addStretch()
         for text, handler, tip in [
-            ("全部开始", self._start_all, "添加左侧已勾选的 BOSS，并恢复右侧暂停的计时；同名条目不会重复添加"),
+            ("全部开始", self._start_all, "恢复右侧列表中所有暂停的计时"),
             ("全部暂停", self._pause_all, "暂停右侧所有正在运行的计时"),
             ("保存配置", self._save_profile, "保存右侧已勾选的条目"),
             ("加载配置", self._load_profile, "从本地保存的配置中选择并加载"),
@@ -109,10 +109,8 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        right_layout.addWidget(QLabel("正在计时（按剩余时间排序，到期 120 秒后移除）"))
         self.table = QTableView()
         self.table_model = TimerTableModel(self.timers, self)
-        self.table_model.selectionChanged.connect(self._mark_dirty)
         self.table.setModel(self.table_model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -123,16 +121,29 @@ class MainWindow(QMainWindow):
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()
+        header_font = header.font()
+        header_font.setBold(False)
+        header.setFont(header_font)
+        header.setStyleSheet("QHeaderView::section { font-weight: normal; }")
         header.setMinimumSectionSize(100)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(False)
+        header.sectionClicked.connect(self._toggle_remaining_sort)
         right_layout.addWidget(self.table, 1)
         self.splitter.addWidget(right)
         self.splitter.setSizes([335, 829])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+
+    def _toggle_remaining_sort(self, section: int):
+        if section != 3:
+            return
+        current = self.table_model.remaining_sort_order
+        order = (Qt.SortOrder.DescendingOrder
+                 if current == Qt.SortOrder.AscendingOrder
+                 else Qt.SortOrder.AscendingOrder)
+        self.table_model.set_remaining_sort_order(order)
 
     def eventFilter(self, watched, event):
         if (watched is self.tree.viewport() and
@@ -308,12 +319,11 @@ class MainWindow(QMainWindow):
 
     def _start_all(self):
         self.timers.cleanup()
-        checked = self.tree_model.checked_ids()
-        added, resumed, invalid = self.timers.start_all([boss for boss in self.bosses if boss.id in checked])
-        if added or resumed:
+        resumed = self.timers.start_all()
+        if resumed:
             self._mark_dirty()
         self._refresh_table()
-        logger.info("批量开始：新增 %s 项，恢复 %s 项，无有效刷新时间 %s 项", added, resumed, invalid)
+        logger.info("已恢复 %s 项计时", resumed)
 
     def _pause_all(self):
         count = self.timers.pause_all()

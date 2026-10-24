@@ -62,19 +62,9 @@ class TimerService:
     def pause_all(self) -> int:
         return sum(self.pause(entry_id) for entry_id in self.entries)
 
-    def start_all(self, bosses: list[BossDefinition]) -> tuple[int, int, int]:
-        """已存在的同名条目保持不变，包含已到期的条目。"""
-        resumed = sum(self.resume(entry_id) for entry_id in self.entries)
-        added = invalid = 0
-        for boss in bosses:
-            try:
-                self.start(boss)
-                added += 1
-            except DuplicateBossError:
-                pass
-            except TimerError:
-                invalid += 1
-        return added, resumed, invalid
+    def start_all(self) -> int:
+        """仅恢复当前列表内的暂停计时，不新增或重置项目。"""
+        return sum(self.resume(entry_id) for entry_id in self.entries)
 
     def remove(self, entry_id: str) -> None:
         self.entries.pop(entry_id, None)
@@ -107,7 +97,8 @@ class TimerService:
                 entry.name, entry.tip, entry.sec = boss.name, boss.tip, boss.sec
 
     def snapshot(self) -> list[dict]:
-        return [entry.to_dict() for entry in self.sorted_entries() if entry.selected]
+        # 右侧列表中的项目均为有效计时，保存方案时全部写入。
+        return [entry.to_dict() for entry in self.sorted_entries()]
 
     def restore(self, payload: list[dict], definitions: list[BossDefinition]) -> int:
         """先完整验证再替换，损坏的方案不会清空当前列表。

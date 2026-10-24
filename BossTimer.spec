@@ -6,7 +6,7 @@ a = Analysis(
     [str(root / 'run.py')],
     pathex=[str(root / 'src')],
     binaries=[],
-    datas=[(str(root / 'src/boss_timer/resources/boss_config.json'), 'boss_timer/resources'),
+    datas=[(str(root / 'boss_config.json'), '.'),
            (str(root / 'src/boss_timer/resources/icons'), 'boss_timer/resources/icons')],
     hiddenimports=[], hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtQml',

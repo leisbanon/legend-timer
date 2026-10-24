@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 import pytest
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu, QPushButton
 
@@ -163,7 +163,7 @@ def test_double_clicking_category_row_toggles_expansion(window, app):
     assert not window.tree.isExpanded(index)
 
 
-def test_start_pause_resume_expire_and_checkbox_save(window, app, clock):
+def test_start_pause_resume_expire_and_save_all(window, app, clock):
     window._start_boss(window.bosses[0])
     window._start_boss(window.bosses[1])
     assert window.table_model.rowCount() == 2
@@ -175,8 +175,7 @@ def test_start_pause_resume_expire_and_checkbox_save(window, app, clock):
     assert entry.remaining(clock()) == remaining
     assert any(window.table_model.data(window.table_model.index(row, 2)) == "已暂停" for row in range(2))
     window._resume_entry(entry.id)
-    window.table_model.setData(window.table_model.index(0, 0), Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
-    assert len(window.timers.snapshot()) == 1
+    assert len(window.timers.snapshot()) == 2
     entry.deadline = clock() - 5
     window._tick()
     row = next(i for i, e in enumerate(window.table_model.rows) if e.id == entry.id)
@@ -186,6 +185,25 @@ def test_start_pause_resume_expire_and_checkbox_save(window, app, clock):
     clock.advance(115)
     window._tick()
     assert entry.id not in window.timers.entries
+
+
+def test_remaining_header_toggles_sort_direction(window, app):
+    window._start_boss(window.bosses[0])
+    window._start_boss(window.bosses[1])
+    window.table_model.refresh()
+    ascending = [entry.id for entry in window.table_model.rows]
+
+    header = window.table.horizontalHeader()
+    x = header.sectionViewportPosition(3) + header.sectionSize(3) // 2
+    QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(x, 5))
+    app.processEvents()
+    assert window.table_model.remaining_sort_order == Qt.SortOrder.DescendingOrder
+    assert [entry.id for entry in window.table_model.rows] == list(reversed(ascending))
+
+    QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(x, 5))
+    app.processEvents()
+    assert window.table_model.remaining_sort_order == Qt.SortOrder.AscendingOrder
+    assert [entry.id for entry in window.table_model.rows] == ascending
 
 
 def test_save_modify_save_as_and_load_dialog_flow(window, monkeypatch):
@@ -243,16 +261,20 @@ def test_context_menu_changes_with_state(window, app):
 
 
 def test_all_buttons_and_close_without_save_prompt(window, app, monkeypatch):
-    # 只勾选一个地图，以免批量测试被其他同名地图掩盖。
+    # 左侧即使全部勾选，批量开始也不能向空表格添加任何项目。
     for row in range(window.tree_model.rowCount()):
-        window.tree_model.item(row).setCheckState(Qt.CheckState.Unchecked)
-    first = window.tree_model.boss_items[window.bosses[0].id]
-    first.setCheckState(Qt.CheckState.Checked)
+        window.tree_model.item(row).setCheckState(Qt.CheckState.Checked)
+    QTest.mouseClick(button(window, "全部开始"), Qt.MouseButton.LeftButton)
+    assert len(window.timers.entries) == 0
+    window._start_boss(window.bosses[0])
+    original_deadline = next(iter(window.timers.entries.values())).deadline
     QTest.mouseClick(button(window, "全部开始"), Qt.MouseButton.LeftButton)
     assert len(window.timers.entries) == 1
+    assert next(iter(window.timers.entries.values())).deadline == original_deadline
     QTest.mouseClick(button(window, "全部暂停"), Qt.MouseButton.LeftButton)
     assert next(iter(window.timers.entries.values())).paused_remaining is not None
     QTest.mouseClick(button(window, "全部开始"), Qt.MouseButton.LeftButton)
+    assert len(window.timers.entries) == 1
     assert next(iter(window.timers.entries.values())).paused_remaining is None
     def unexpected_confirmation():
         raise AssertionError("关闭窗口不应询问保存计时方案")
@@ -263,7 +285,8 @@ def test_all_buttons_and_close_without_save_prompt(window, app, monkeypatch):
     assert not window.isVisible()
     assert not window.tick_timer.isActive()
     assert window.profile_service.profiles == []
-    assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert bool(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint) is \
+        window.boss_repository.window_topmost()
     assert "topmost" not in window.settings_store.read()
     assert not window.catalog_dirty
 

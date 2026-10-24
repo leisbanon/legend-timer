@@ -59,15 +59,16 @@ def test_expiry_boundary_and_stable_sorting(clock):
 
 def test_all_start_resumes_and_does_not_reset_or_duplicate(clock):
     service = TimerService(clock)
-    one, two = boss(sec=100), boss("魔龙教主", sec=20, boss_id="boss-2")
+    one = boss(sec=100)
     entry = service.start(one)
     clock.advance(5)
     service.pause_all()
     clock.advance(100)
-    assert service.start_all([one, two, boss(name="坏数据", sec=0)]) == (1, 1, 1)
+    assert service.start_all() == 1
+    assert len(service.entries) == 1
     assert entry.remaining(clock()) == 95
     deadline = entry.deadline
-    assert service.start_all([one, two]) == (0, 0, 0)
+    assert service.start_all() == 0
     assert entry.deadline == deadline
 
 
@@ -121,9 +122,9 @@ def test_restore_is_transactional_and_uses_latest_names(clock):
         assert service.entries[entry.id].name == "新版名称"
 
 
-def test_only_checked_rows_are_saved(clock):
+def test_all_running_rows_are_saved(clock):
     service = TimerService(clock)
     entry = service.start(boss())
     entry.selected = False
-    assert service.snapshot() == []
+    assert service.snapshot() == [entry.to_dict()]
     assert len(service.entries) == 1

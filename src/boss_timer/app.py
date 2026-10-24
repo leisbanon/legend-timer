@@ -20,7 +20,10 @@ from boss_timer.ui.main_window import MainWindow
 
 
 def resource_path() -> Path:
-    return Path(__file__).resolve().parent / "resources" / "boss_config.json"
+    if getattr(sys, "frozen", False):
+        # 单文件发布仍使用包内配置，dist 只需保留 BossTimer.exe。
+        return Path(sys._MEIPASS) / "boss_config.json"
+    return Path(__file__).resolve().parents[2] / "boss_config.json"
 
 
 def main() -> int:
