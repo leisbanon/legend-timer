@@ -9,7 +9,7 @@ from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QCloseEvent, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle,
+    QMainWindow, QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter, QStyle,
     QStyleOptionViewItem, QTableView, QTreeView, QVBoxLayout, QWidget,
 )
 
@@ -147,14 +147,31 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        timer_hint = QLabel("按剩余时间自动排序；标红后120秒消失")
+        timer_hint = QLabel("按剩余时间自动排序；标红后")
         timer_hint.setFont(title_font)
         timer_hint.setPalette(title_palette)
         timer_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         right_header = QHBoxLayout()
         right_header.setContentsMargins(0, 0, 0, 0)
         right_header.setSpacing(8)
-        right_header.addWidget(timer_hint)
+        cleanup_layout = QHBoxLayout()
+        cleanup_layout.setSpacing(3)
+        cleanup_layout.addWidget(timer_hint)
+        self.cleanup_seconds_input = QSpinBox()
+        self.cleanup_seconds_input.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.cleanup_seconds_input.setRange(1, 86400)
+        self.cleanup_seconds_input.setValue(TimerService.CLEANUP_SECONDS)
+        self.cleanup_seconds_input.setKeyboardTracking(False)
+        self.cleanup_seconds_input.setFont(title_font)
+        self.cleanup_seconds_input.setFixedWidth(62)
+        self.cleanup_seconds_input.setFixedHeight(24)
+        self.cleanup_seconds_input.valueChanged.connect(self._set_cleanup_seconds)
+        cleanup_layout.addWidget(self.cleanup_seconds_input)
+        cleanup_suffix = QLabel("秒消失")
+        cleanup_suffix.setFont(title_font)
+        cleanup_suffix.setPalette(title_palette)
+        cleanup_layout.addWidget(cleanup_suffix)
+        right_header.addLayout(cleanup_layout)
         right_header.addStretch()
         right_header.addLayout(toolbar)
         right_layout.addLayout(right_header)
@@ -301,6 +318,11 @@ class MainWindow(QMainWindow):
             raise StorageError("窗口设置格式错误，请检查 settings.json。")
         topmost = settings.get("topmost", True)
         self.topmost_checkbox.setChecked(topmost if isinstance(topmost, bool) else True)
+        cleanup_seconds = settings.get("cleanup_seconds", TimerService.CLEANUP_SECONDS)
+        if type(cleanup_seconds) is not int or not 1 <= cleanup_seconds <= 86400:
+            cleanup_seconds = TimerService.CLEANUP_SECONDS
+        self.cleanup_seconds_input.setValue(cleanup_seconds)
+        self.timers.cleanup_seconds = cleanup_seconds
         geometry = settings.get("geometry")
         restored_geometry = False
         if isinstance(geometry, str):
@@ -322,6 +344,9 @@ class MainWindow(QMainWindow):
         else:
             # 没有展开历史时，所有层级默认收起。
             self.tree.collapseAll()
+
+    def _set_cleanup_seconds(self, seconds: int):
+        self.timers.cleanup_seconds = seconds
 
     def _set_topmost(self, enabled: bool):
         visible = self.isVisible()
@@ -625,6 +650,7 @@ class MainWindow(QMainWindow):
                 "geometry": base64.b64encode(bytes(self.saveGeometry())).decode("ascii"),
                 "splitter": self.splitter.sizes(),
                 "topmost": self.topmost_checkbox.isChecked(),
+                "cleanup_seconds": self.cleanup_seconds_input.value(),
                 "expanded": [key for key, item in self.tree_model.nodes.items()
                              if self.tree.isExpanded(item.index())],
             })

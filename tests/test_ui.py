@@ -42,6 +42,23 @@ def button(window, text):
     return next(b for b in window.findChildren(QPushButton) if b.text() == text)
 
 
+def test_cleanup_delay_edit_applies_to_expired_rows_and_is_saved(window, clock):
+    window._start_boss(replace(window.bosses[0], sec=10))
+    clock.advance(70)
+    window._tick()
+    assert len(window.timers.entries) == 1
+    window.cleanup_seconds_input.setValue(30)
+    window._tick()
+    assert not window.timers.entries
+    assert window.table_model.rowCount() == 0
+    window.close()
+    assert window.settings_store.read()["cleanup_seconds"] == 30
+    window.cleanup_seconds_input.setValue(120)
+    window._restore_settings()
+    assert window.cleanup_seconds_input.value() == 30
+    assert window.timers.cleanup_seconds == 30
+
+
 def test_delete_profile_by_id_preserves_same_name_and_current_timers(window):
     window._start_boss(window.bosses[0])
     payload = window.timers.snapshot()

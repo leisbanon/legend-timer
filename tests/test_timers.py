@@ -14,12 +14,13 @@ def test_duplicate_names_across_maps_and_missing_interval(clock):
     service = TimerService(clock)
     entry = service.start(boss())
     clock.advance(100)
+    service.start(boss(map_name="魔龙殿", boss_id="boss-2"))
     with pytest.raises(DuplicateBossError):
-        service.start(boss(map_name="魔龙殿", boss_id="boss-2"))
+        service.start(boss(boss_id="boss-3"))
     assert entry.remaining(clock()) == 1700
     with pytest.raises(TimerError):
         service.start(boss(name="未配置怪物", sec=0))
-    assert len(service.entries) == 1
+    assert len(service.entries) == 2
 
 
 @pytest.mark.parametrize("state", ["running", "paused", "expired"])
@@ -36,6 +37,20 @@ def test_restart_uses_full_interval_and_preserves_identity(clock, state):
     assert entry.paused_remaining is None
     assert entry.state(clock()) == TimerState.RUNNING
     assert list(service.entries) == [entry.id]
+
+
+def test_same_name_across_maps_can_be_loaded_and_edited(clock):
+    service = TimerService(clock)
+    definitions = [boss(), boss(map_name="魔龙殿", boss_id="boss-2")]
+    for definition in definitions:
+        service.start(definition)
+    payload = service.snapshot()
+    service.restore(payload, definitions)
+    assert len(service.entries) == 2
+    service.load_fresh(payload, definitions)
+    assert len(service.entries) == 2
+    service.sync_definition(replace(definitions[0], sec=90))
+    assert sorted(entry.sec for entry in service.entries.values()) == [90, 1800]
 
 
 def test_pause_resume_does_not_count_time_while_paused(clock):

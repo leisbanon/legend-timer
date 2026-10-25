@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Callable
 from uuid import uuid4
 
-from boss_timer.domain.models import BossDefinition, TimerEntry, TimerState, name_key
+from boss_timer.domain.models import BossDefinition, TimerEntry, TimerState, boss_key, name_key
 
 
 class TimerError(ValueError):
@@ -27,13 +27,14 @@ class TimerService:
 
     def __init__(self, clock: Callable[[], float] = time.time):
         self.clock = clock
+        self.cleanup_seconds = self.CLEANUP_SECONDS
         self.entries: dict[str, TimerEntry] = {}
 
     def start(self, boss: BossDefinition) -> TimerEntry:
         if boss.sec <= 0:
             raise TimerError("请先双击该 BOSS，设置大于 0 的刷新时间。")
         for entry in self.entries.values():
-            if name_key(entry.name) == name_key(boss.name):
+            if boss_key(entry) == boss_key(boss):
                 raise DuplicateBossError(entry)
         entry = TimerEntry(
             str(uuid4()), boss.id, boss.group, boss.map, boss.name,
@@ -84,7 +85,7 @@ class TimerService:
         now = self.clock()
         expired = [entry.id for entry in self.entries.values()
                    if entry.paused_remaining is None and entry.deadline is not None
-                   and now >= entry.deadline + self.CLEANUP_SECONDS]
+                   and now >= entry.deadline + self.cleanup_seconds]
         for entry_id in expired:
             self.remove(entry_id)
         return expired
@@ -98,8 +99,8 @@ class TimerService:
         own_entries = [e for e in self.entries.values() if e.boss_id == boss.id]
         if own_entries:
             for entry in self.entries.values():
-                if entry.boss_id != boss.id and name_key(entry.name) == name_key(boss.name):
-                    raise TimerError("修改后的名称与右侧已有怪物重名，请先删除对应计时。")
+                if entry.boss_id != boss.id and boss_key(entry) == boss_key(boss):
+                    raise TimerError("修改后与同一地图的已有怪物重名，请先删除对应计时。")
 
     def sync_definition(self, boss: BossDefinition) -> None:
         self.validate_edit(boss)
@@ -146,7 +147,7 @@ class TimerService:
         """
         definitions_by_id = {boss.id: boss for boss in definitions}
         staged: dict[str, TimerEntry] = {}
-        seen_names: set[str] = set()
+        seen_names: set[tuple[str, str, str]] = set()
         now = self.clock()
         removed = 0
         try:
@@ -173,10 +174,10 @@ class TimerService:
                 else:
                     # 确保时间能由系统转换为表格中的日期，拒绝异常的大数。
                     datetime.fromtimestamp(entry.deadline)
-                    if now >= entry.deadline + self.CLEANUP_SECONDS:
+                    if now >= entry.deadline + self.cleanup_seconds:
                         removed += 1
                         continue
-                key = name_key(entry.name)
+                key = boss_key(entry)
                 if entry.id in staged or key in seen_names:
                     raise ValueError("方案中存在重复怪物名称或计时 ID")
                 entry.selected = True

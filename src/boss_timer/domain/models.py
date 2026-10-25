@@ -7,8 +7,13 @@ from typing import Any
 
 
 def name_key(name: str) -> str:
-    """不同地图共享名称唯一约束，忽略首尾空白和英文大小写。"""
+    """规范化名称，忽略首尾空白和英文大小写。"""
     return name.strip().casefold()
+
+
+def boss_key(boss) -> tuple[str, str, str]:
+    """仅同一分组、地图内的同名怪物共享计时唯一约束。"""
+    return boss.group, boss.map, name_key(boss.name)
 
 
 @dataclass(frozen=True)

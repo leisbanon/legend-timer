@@ -1,1 +1,3 @@
 .\.venv\Scripts\python.exe run.py
+
+.\build.ps1
