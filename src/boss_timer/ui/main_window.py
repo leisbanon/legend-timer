@@ -25,7 +25,6 @@ from boss_timer.ui.messages import ask_confirmation, show_notice
 from boss_timer.ui.models.boss_tree import BossTreeModel
 from boss_timer.ui.models.timer_table import TimerTableModel
 from boss_timer.ui.theme import (
-    configure_square_button_appearance,
     configure_table_appearance,
     configure_tree_appearance,
 )
@@ -94,7 +93,6 @@ class MainWindow(QMainWindow):
             button.setFont(button_font)
             button.setFixedHeight(26)
             button.setFixedWidth(button.fontMetrics().horizontalAdvance(text) + 18)
-            configure_square_button_appearance(button)
             button.setToolTip(tip)
             button.clicked.connect(handler)
             toolbar.addWidget(button)

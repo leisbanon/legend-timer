@@ -44,15 +44,6 @@ def configure_button_appearance(app: QApplication) -> None:
     app.setStyle(style)
 
 
-def configure_square_button_appearance(button) -> None:
-    """为顶部紧凑按钮使用无圆角的 Windows 经典原生绘制。"""
-    style = NativeButtonStyle("Windows")
-    style.setObjectName("Windows")
-    style.setParent(button)
-    button._square_button_style = style
-    button.setStyle(style)
-
-
 class SimpleCheckboxStyle(QProxyStyle):
     """绘制简约黑白复选框及加减号树节点，其余交给系统样式。"""
 

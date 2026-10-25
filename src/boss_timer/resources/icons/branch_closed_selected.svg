@@ -6,8 +6,8 @@
       <stop offset="1" stop-color="#e6e6e6"/>
     </linearGradient>
   </defs>
-  <rect x="5" y="5" width="10" height="10" fill="url(#button)" stroke="#8c8c8c" stroke-width="1"/>
-  <g stroke="#4a4a4a" stroke-width="1" stroke-linecap="square">
+  <rect x="5" y="5" width="10" height="10" fill="none" stroke="#ffffff" stroke-width="1"/>
+  <g stroke="#ffffff" stroke-width="1" stroke-linecap="square">
     <path d="M7.2 10H12.8"/>
     <path d="M10 7.2V12.8"/>
   </g>
