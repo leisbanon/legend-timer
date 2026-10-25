@@ -21,7 +21,7 @@ a.binaries = [entry for entry in a.binaries
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name='BossTimer', debug=False, bootloader_ignore_signals=False,
+    name='LegendTimer', debug=False, bootloader_ignore_signals=False,
     icon=str(root / 'src/boss_timer/resources/icons/app.ico'),
     strip=False, upx=False, console=False, disable_windowed_traceback=False,
 )
