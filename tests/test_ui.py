@@ -439,9 +439,8 @@ def test_all_buttons_and_close_without_save_prompt(window, app, monkeypatch):
     assert not window.isVisible()
     assert not window.tick_timer.isActive()
     assert window.profile_service.profiles == []
-    assert bool(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint) is \
-        window.boss_repository.window_topmost()
-    assert "topmost" not in window.settings_store.read()
+    assert bool(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+    assert window.settings_store.read()["topmost"] is True
     assert not window.catalog_dirty
 
 

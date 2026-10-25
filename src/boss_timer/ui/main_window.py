@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QCloseEvent, QPalette
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle,
     QStyleOptionViewItem, QTableView, QTreeView, QVBoxLayout, QWidget,
 )
@@ -25,6 +25,7 @@ from boss_timer.ui.messages import ask_confirmation, show_notice
 from boss_timer.ui.models.boss_tree import BossTreeModel
 from boss_timer.ui.models.timer_table import TimerTableModel
 from boss_timer.ui.theme import (
+    configure_checkbox_appearance,
     configure_table_appearance,
     configure_tree_appearance,
 )
@@ -55,8 +56,7 @@ class MainWindow(QMainWindow):
         self.dirty = False
         self.catalog_dirty = False
         self.setWindowTitle("传奇 BOSS 计时工具")
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint,
-                           self.boss_repository.window_topmost())
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
         self._build_ui()
@@ -116,7 +116,16 @@ class MainWindow(QMainWindow):
         catalog_title.setPalette(title_palette)
         catalog_title.setFixedHeight(26)
         catalog_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        left_layout.addWidget(catalog_title)
+        left_header = QHBoxLayout()
+        left_header.addWidget(catalog_title)
+        self.topmost_checkbox = QCheckBox("置顶")
+        self.topmost_checkbox.setFont(title_font)
+        self.topmost_checkbox.setChecked(True)
+        configure_checkbox_appearance(self.topmost_checkbox)
+        self.topmost_checkbox.toggled.connect(self._set_topmost)
+        left_header.addWidget(self.topmost_checkbox)
+        left_header.addStretch()
+        left_layout.addLayout(left_header)
         self.tree = QTreeView()
         self.tree_model = BossTreeModel(self.bosses, self)
         self.tree.setModel(self.tree_model)
@@ -200,7 +209,6 @@ class MainWindow(QMainWindow):
             # 先验证默认文件，读取失败时不删除用户的任何配置。
             defaults = BossRepository(self.boss_repository.seed_path, self.boss_repository.seed_path)
             bosses = defaults.load()
-            topmost = defaults.window_topmost()
             clear_local_config(self.settings_store.path.parent, self.legacy_data_dir)
         except (StorageError, OSError) as exc:
             self._error(str(exc))
@@ -221,7 +229,8 @@ class MainWindow(QMainWindow):
         self.table_model.set_remaining_sort_order(Qt.SortOrder.AscendingOrder)
         self._refresh_table()
         self.showNormal()
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, topmost)
+        self.topmost_checkbox.setChecked(True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         screen = self.screen().availableGeometry()
         self.move(screen.center() - self.rect().center())
@@ -290,6 +299,8 @@ class MainWindow(QMainWindow):
         settings = self.settings_store.read({})
         if not isinstance(settings, dict):
             raise StorageError("窗口设置格式错误，请检查 settings.json。")
+        topmost = settings.get("topmost", True)
+        self.topmost_checkbox.setChecked(topmost if isinstance(topmost, bool) else True)
         geometry = settings.get("geometry")
         restored_geometry = False
         if isinstance(geometry, str):
@@ -311,6 +322,16 @@ class MainWindow(QMainWindow):
         else:
             # 没有展开历史时，所有层级默认收起。
             self.tree.collapseAll()
+
+    def _set_topmost(self, enabled: bool):
+        visible = self.isVisible()
+        geometry = self.geometry()
+        state = self.windowState()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+        self.setGeometry(geometry)
+        self.setWindowState(state)
+        if visible:
+            self.show()
 
     def _apply_compact_startup_geometry(self, restored_geometry: bool):
         """保留上次位置，但每次均以适合桌面常驻的普通小窗口启动。"""
@@ -603,6 +624,7 @@ class MainWindow(QMainWindow):
             self.settings_store.write({
                 "geometry": base64.b64encode(bytes(self.saveGeometry())).decode("ascii"),
                 "splitter": self.splitter.sizes(),
+                "topmost": self.topmost_checkbox.isChecked(),
                 "expanded": [key for key, item in self.tree_model.nodes.items()
                              if self.tree.isExpanded(item.index())],
             })
