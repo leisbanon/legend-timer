@@ -6,12 +6,51 @@ from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication, QHeaderView, QProxyStyle, QStyle, QStyledItemDelegate,
-    QStyleFactory, QStyleOptionViewItem,
+    QStyleFactory, QStyleOptionButton, QStyleOptionViewItem,
 )
+
 
 BLUE = "#0078d7"
 TABLE_ROW_HEIGHT = 24
 CHECKBOX_SIZE = 13
+
+
+class NativeButtonStyle(QProxyStyle):
+    """由当前平台绘制按钮，仅省略默认/焦点按钮的强调装饰。"""
+
+    def drawControl(self, element, option, painter, widget=None):
+        if isinstance(option, QStyleOptionButton) and element in (
+            QStyle.ControlElement.CE_PushButton,
+            QStyle.ControlElement.CE_PushButtonBevel,
+            QStyle.ControlElement.CE_PushButtonLabel,
+        ):
+            native_option = QStyleOptionButton(option)
+            native_option.state &= ~(QStyle.StateFlag.State_HasFocus |
+                                     QStyle.StateFlag.State_KeyboardFocusChange)
+            native_option.features &= ~(QStyleOptionButton.ButtonFeature.DefaultButton |
+                                        QStyleOptionButton.ButtonFeature.AutoDefaultButton)
+            # 只修改本次绘制的选项，不改变按钮的焦点、Enter 或 Tab 行为。
+            return super().drawControl(element, native_option, painter, widget)
+        return super().drawControl(element, option, painter, widget)
+
+
+def configure_button_appearance(app: QApplication) -> None:
+    if isinstance(app.style(), NativeButtonStyle):
+        return
+    style_name = app.style().objectName()
+    style = NativeButtonStyle(style_name)
+    # 保留平台样式名，供复选框局部代理创建同样的平台样式。
+    style.setObjectName(style_name)
+    app.setStyle(style)
+
+
+def configure_square_button_appearance(button) -> None:
+    """为顶部紧凑按钮使用无圆角的 Windows 经典原生绘制。"""
+    style = NativeButtonStyle("Windows")
+    style.setObjectName("Windows")
+    style.setParent(button)
+    button._square_button_style = style
+    button.setStyle(style)
 
 
 class SimpleCheckboxStyle(QProxyStyle):

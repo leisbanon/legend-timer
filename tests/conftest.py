@@ -6,12 +6,14 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from boss_timer.ui.fonts import configure_application_font
+from boss_timer.ui.theme import configure_button_appearance
 
 
 @pytest.fixture(scope="session")
 def app():
     instance = QApplication.instance() or QApplication([])
     configure_application_font(instance)
+    configure_button_appearance(instance)
     yield instance
 
 

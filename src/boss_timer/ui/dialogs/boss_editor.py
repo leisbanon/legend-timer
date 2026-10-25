@@ -43,7 +43,7 @@ class BossEditorDialog(QDialog):
         cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
         self.ok_button = ok_button
         self.cancel_button = cancel_button
-        ok_button.setText("确定")
+        ok_button.setText("确认")
         cancel_button.setText("取消")
         # QDialogButtonBox 默认会把“确定”设为默认按钮并绘制强调色边框。
         for button in (ok_button, cancel_button):

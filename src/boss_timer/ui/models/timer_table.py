@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor
 
 from boss_timer.domain.models import TimerEntry, TimerState
 from boss_timer.services.timer_service import TimerService
@@ -61,10 +61,6 @@ class TimerTableModel(QAbstractTableModel):
                 return QColor("#c00000")
             if state == TimerState.PAUSED:
                 return QColor("#777777")
-        if role == Qt.ItemDataRole.FontRole and state == TimerState.EXPIRED:
-            font = QFont()
-            font.setBold(True)
-            return font
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignCenter
         if role == Qt.ItemDataRole.ToolTipRole:

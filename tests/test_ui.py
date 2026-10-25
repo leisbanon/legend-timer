@@ -1,3 +1,4 @@
+import base64
 from dataclasses import replace
 
 import pytest
@@ -14,7 +15,13 @@ from boss_timer.services.profile_service import ProfileService
 from boss_timer.services.timer_service import TimerService
 from boss_timer.ui.dialogs.boss_editor import BossEditorDialog
 from boss_timer.ui.dialogs.profile_dialogs import LoadProfileDialog, SaveProfileDialog
-from boss_timer.ui.main_window import MainWindow
+from boss_timer.ui.main_window import (
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
+    MINIMUM_WINDOW_HEIGHT,
+    MINIMUM_WINDOW_WIDTH,
+    MainWindow,
+)
 from boss_timer.ui.models.boss_tree import BossTreeModel
 
 
@@ -35,6 +42,64 @@ def button(window, text):
     return next(b for b in window.findChildren(QPushButton) if b.text() == text)
 
 
+def test_startup_uses_compact_normal_window_even_after_maximized_session(
+        window, app, tmp_path, clock):
+    window.showMaximized()
+    app.processEvents()
+    window.settings_store.write({
+        "geometry": base64.b64encode(bytes(window.saveGeometry())).decode("ascii"),
+        "splitter": [300, 600],
+        "expanded": [],
+    })
+
+    restored = MainWindow(
+        BossRepository(tmp_path / "other_catalog.json", resource_path()),
+        ProfileService(ProfileRepository(tmp_path / "other_profiles.json"), clock),
+        TimerService(clock),
+        window.settings_store,
+    )
+    restored.show()
+    app.processEvents()
+    try:
+        assert not restored.isMaximized()
+        assert not restored.isFullScreen()
+        assert restored.width() == DEFAULT_WINDOW_WIDTH
+        assert restored.height() == DEFAULT_WINDOW_HEIGHT
+        assert restored.minimumWidth() == MINIMUM_WINDOW_WIDTH
+        assert restored.minimumHeight() == MINIMUM_WINDOW_HEIGHT
+    finally:
+        restored.dirty = False
+        restored.close()
+        app.processEvents()
+
+
+def test_double_click_timer_confirms_restart_without_duplicates(window, app, clock, monkeypatch):
+    window._start_boss(replace(window.bosses[0], sec=60))
+    entry = window.table_model.rows[0]
+    clock.advance(10)
+    window._pause_entry(entry.id)
+    original_remaining = entry.paused_remaining
+    index = window.table_model.index(0, 0)
+    position = window.table.visualRect(index).center()
+    monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Cancel)
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    QTest.mouseDClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    assert entry.paused_remaining == original_remaining
+
+    def confirm(_):
+        clock.advance(3)
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "exec", confirm)
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    QTest.mouseDClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    app.processEvents()
+    assert entry.deadline == clock() + 60
+    assert entry.paused_remaining is None
+    assert len(window.timers.entries) == 1
+    assert window.dirty
+
+
 def test_reset_defaults_requires_confirmation_and_restores_disk_and_ui(window, app, tmp_path, monkeypatch):
     defaults_bytes = resource_path().read_bytes()
     default_boss = window.bosses[0]
@@ -51,12 +116,12 @@ def test_reset_defaults_requires_confirmation_and_restores_disk_and_ui(window, a
     window.tree_model.item(0).setCheckState(Qt.CheckState.Unchecked)
     assert window.catalog_save_timer.isActive()
 
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Cancel)
     QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
     assert window.timers.entries
     assert window.profile_service.profiles
 
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Ok)
     QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
     app.processEvents()
     assert window.bosses[0] == default_boss
@@ -70,7 +135,8 @@ def test_reset_defaults_requires_confirmation_and_restores_disk_and_ui(window, a
     assert window.profile_service.repository.load() == []
     assert window.boss_repository.load()[0] == default_boss
     assert window.table_model.remaining_sort_order == Qt.SortOrder.AscendingOrder
-    assert window.tree.isExpanded(window.tree_model.item(0).index())
+    assert all(not window.tree.isExpanded(item.index())
+               for item in window.tree_model.nodes.values())
     assert not (legacy / "boss_catalog.json").exists()
     assert not list(tmp_path.rglob("*.json.bak"))
     assert resource_path().read_bytes() == defaults_bytes
@@ -112,6 +178,26 @@ def test_tree_hierarchy_checkbox_propagation_and_absent_levels(app):
     assert map_item.checkState() == Qt.CheckState.PartiallyChecked
     assert group.checkState() == Qt.CheckState.PartiallyChecked
     assert model.checked_ids() == {"b", "c"}
+
+
+def test_starting_map_node_adds_checked_bosses_without_restarting_duplicates(window):
+    first = window.bosses[0]
+    map_item = window.tree_model.nodes[f"map:{first.group}/{first.map}"]
+    descendants = window._bosses_below(map_item.index())
+    assert len(descendants) > 1
+    unchecked = descendants[-1]
+    window.tree_model.boss_items[unchecked.id].setCheckState(Qt.CheckState.Unchecked)
+    window._start_boss(descendants[0])
+    existing = next(iter(window.timers.entries.values()))
+    original_deadline = existing.deadline
+
+    window._start_map_bosses(map_item.index())
+
+    assert existing.deadline == original_deadline
+    assert {entry.boss_id for entry in window.timers.entries.values()} == {
+        boss.id for boss in descendants if boss.sec > 0 and boss.id != unchecked.id
+    }
+    assert window.dirty
 
 
 def test_native_editor_validation_and_only_requested_fields(app):
@@ -209,8 +295,9 @@ def test_double_clicking_category_row_toggles_expansion(window, app):
 
 
 def test_start_pause_resume_expire_and_save_all(window, app, clock):
-    window._start_boss(window.bosses[0])
-    window._start_boss(window.bosses[1])
+    # 使用固定间隔，避免用户修改默认秒数后影响暂停/恢复测试。
+    window._start_boss(replace(window.bosses[0], sec=1800))
+    window._start_boss(replace(window.bosses[1], sec=1800))
     assert window.table_model.rowCount() == 2
     entry = window.table_model.rows[0]
     window._pause_entry(entry.id)

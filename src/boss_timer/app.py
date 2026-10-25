@@ -17,6 +17,8 @@ from boss_timer.services.profile_service import ProfileService
 from boss_timer.services.timer_service import TimerService
 from boss_timer.services.local_data import migrate_local_data
 from boss_timer.ui.fonts import configure_application_font
+from boss_timer.ui.messages import show_notice
+from boss_timer.ui.theme import configure_button_appearance
 from boss_timer.ui.main_window import MainWindow
 
 
@@ -42,6 +44,7 @@ def main() -> int:
     app.setApplicationName("LegendBossTimer")
     app.setApplicationDisplayName("传奇 BOSS 计时工具")
     configure_application_font(app)
+    configure_button_appearance(app)
     temporary = tempfile.TemporaryDirectory(prefix="boss-timer-smoke-") if args.smoke_test else None
     data_dir = args.data_dir or (Path(temporary.name) if temporary else
                                 Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)))
@@ -53,7 +56,7 @@ def main() -> int:
         # 同一数据目录只允许一个实例，防止两个窗口互相覆盖配置。
         lock = QLockFile(str(data_dir / "app.lock"))
         if not lock.tryLock(100):
-            QMessageBox.information(None, "传奇 BOSS 计时工具", "程序已在运行，请切换到已有窗口。")
+            show_notice(None, "传奇 BOSS 计时工具", "程序已在运行，请切换到已有窗口。")
             return 0
         legacy_dir = None
         legacy_lock = None
@@ -62,7 +65,7 @@ def main() -> int:
             if legacy_dir.is_dir():
                 legacy_lock = QLockFile(str(legacy_dir / "app.lock"))
                 if not legacy_lock.tryLock(100):
-                    QMessageBox.information(None, "传奇 BOSS 计时工具", "旧版程序仍在运行，请先关闭后再启动。")
+                    show_notice(None, "传奇 BOSS 计时工具", "旧版程序仍在运行，请先关闭后再启动。")
                     return 0
                 migrate_local_data(data_dir, legacy_dir)
         profiles = ProfileService(ProfileRepository(data_dir / "profiles.json"))
@@ -71,12 +74,14 @@ def main() -> int:
                             profiles, TimerService(), JsonStore(data_dir / "settings.json"),
                             legacy_data_dir=legacy_dir)
     except (OSError, StorageError) as exc:
-        QMessageBox.critical(None, "启动失败", str(exc))
+        show_notice(None, "启动失败", str(exc), QMessageBox.Icon.Critical)
         return 1
 
     def exception_hook(exc_type, value, traceback):
         logging.error("未处理的异常", exc_info=(exc_type, value, traceback))
-        QMessageBox.critical(window, "操作失败", f"{value}\n\n详细信息已记录到：{data_dir / 'app.log'}")
+        show_notice(window, "操作失败",
+                    f"{value}\n\n详细信息已记录到：{data_dir / 'app.log'}",
+                    QMessageBox.Icon.Critical)
 
     sys.excepthook = exception_hook
     window.show()

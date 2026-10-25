@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QColor, QCloseEvent, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle,
@@ -21,11 +21,22 @@ from boss_timer.services.timer_service import DuplicateBossError, TimerError, Ti
 from boss_timer.services.local_data import clear_local_config
 from boss_timer.ui.dialogs.boss_editor import BossEditorDialog
 from boss_timer.ui.dialogs.profile_dialogs import LoadProfileDialog, SaveProfileDialog
+from boss_timer.ui.messages import ask_confirmation, show_notice
 from boss_timer.ui.models.boss_tree import BossTreeModel
 from boss_timer.ui.models.timer_table import TimerTableModel
-from boss_timer.ui.theme import configure_table_appearance, configure_tree_appearance
+from boss_timer.ui.theme import (
+    configure_square_button_appearance,
+    configure_table_appearance,
+    configure_tree_appearance,
+)
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_WINDOW_WIDTH = 900
+DEFAULT_WINDOW_HEIGHT = 560
+MINIMUM_WINDOW_WIDTH = 760
+MINIMUM_WINDOW_HEIGHT = 460
+DEFAULT_SPLITTER_SIZES = [245, 631]
 
 
 class MainWindow(QMainWindow):
@@ -47,8 +58,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("传奇 BOSS 计时工具")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint,
                            self.boss_repository.window_topmost())
-        self.resize(1200, 760)
-        self.setMinimumSize(980, 580)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
         self._build_ui()
         self._restore_settings()
         # 只使用一个调度器。界面每秒更新，休眠恢复后也按实际时刻计算。
@@ -66,11 +77,10 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(12, 12, 12, 8)
+        layout.setContentsMargins(6, 12, 6, 8)
         layout.setSpacing(12)
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(12)
-        toolbar.addStretch()
+        toolbar.setSpacing(6)
         for text, handler, tip in [
             ("全部开始", self._start_all, "恢复右侧列表中所有暂停的计时"),
             ("全部暂停", self._pause_all, "暂停右侧所有正在运行的计时"),
@@ -79,20 +89,36 @@ class MainWindow(QMainWindow):
             ("恢复默认配置", self._reset_defaults, "恢复默认 BOSS 资料，并清空计时、方案及窗口设置"),
         ]:
             button = QPushButton(text)
-            button.setMinimumHeight(32)
+            button_font = button.font()
+            button_font.setPointSize(8)
+            button.setFont(button_font)
+            button.setFixedHeight(26)
+            button.setFixedWidth(button.fontMetrics().horizontalAdvance(text) + 18)
+            configure_square_button_appearance(button)
             button.setToolTip(tip)
             button.clicked.connect(handler)
             toolbar.addWidget(button)
-        layout.addLayout(toolbar)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
+        # 两个控件自身各有边框；2 像素分隔条与 6 像素外边距形成相同的可见留白。
+        self.splitter.setHandleWidth(2)
         layout.addWidget(self.splitter, 1)
         left = QWidget()
         left.setMinimumWidth(245)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
-        left_layout.addWidget(QLabel("BOSS 地图目录"))
+        catalog_title = QLabel("BOSS 地图目录")
+        title_font = catalog_title.font()
+        title_font.setPointSize(8)
+        title_font.setBold(False)
+        catalog_title.setFont(title_font)
+        title_palette = catalog_title.palette()
+        title_palette.setColor(QPalette.ColorRole.WindowText, QColor("#888888"))
+        catalog_title.setPalette(title_palette)
+        catalog_title.setFixedHeight(26)
+        catalog_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        left_layout.addWidget(catalog_title)
         self.tree = QTreeView()
         self.tree_model = BossTreeModel(self.bosses, self)
         self.tree.setModel(self.tree_model)
@@ -114,6 +140,17 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
+        timer_hint = QLabel("按剩余时间自动排序；标红后120秒消失")
+        timer_hint.setFont(title_font)
+        timer_hint.setPalette(title_palette)
+        timer_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        right_header = QHBoxLayout()
+        right_header.setContentsMargins(0, 0, 0, 0)
+        right_header.setSpacing(8)
+        right_header.addWidget(timer_hint)
+        right_header.addStretch()
+        right_header.addLayout(toolbar)
+        right_layout.addLayout(right_header)
         self.table = QTableView()
         self.table_model = TimerTableModel(self.timers, self)
         self.table.setModel(self.table_model)
@@ -122,6 +159,7 @@ class MainWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_context_menu)
+        self.table.doubleClicked.connect(self._confirm_restart_timer)
         configure_table_appearance(self.table)
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
@@ -137,7 +175,7 @@ class MainWindow(QMainWindow):
         header.sectionClicked.connect(self._toggle_remaining_sort)
         right_layout.addWidget(self.table, 1)
         self.splitter.addWidget(right)
-        self.splitter.setSizes([335, 829])
+        self.splitter.setSizes(DEFAULT_SPLITTER_SIZES)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
 
@@ -151,15 +189,14 @@ class MainWindow(QMainWindow):
         self.table_model.set_remaining_sort_order(order)
 
     def _reset_defaults(self):
-        answer = QMessageBox.warning(
+        confirmed = ask_confirmation(
             self, "恢复默认配置",
             "将恢复默认 BOSS 信息与勾选状态，清空右侧计时和所有已保存方案，"
             "并重置窗口布局、菜单展开历史及排序。\n"
             "本地新旧目录中的配置、缓存和备份将被清除。是否继续？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            QMessageBox.Icon.Warning,
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
         try:
             # 先验证默认文件，读取失败时不删除用户的任何配置。
@@ -187,10 +224,10 @@ class MainWindow(QMainWindow):
         self._refresh_table()
         self.showNormal()
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, topmost)
-        self.resize(1200, 760)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         screen = self.screen().availableGeometry()
         self.move(screen.center() - self.rect().center())
-        self.splitter.setSizes([335, 829])
+        self.splitter.setSizes(DEFAULT_SPLITTER_SIZES)
         self._restore_settings()
         self.tree.verticalScrollBar().setValue(0)
         self.table.verticalScrollBar().setValue(0)
@@ -256,11 +293,15 @@ class MainWindow(QMainWindow):
         if not isinstance(settings, dict):
             raise StorageError("窗口设置格式错误，请检查 settings.json。")
         geometry = settings.get("geometry")
+        restored_geometry = False
         if isinstance(geometry, str):
             try:
-                self.restoreGeometry(QByteArray(base64.b64decode(geometry, validate=True)))
+                restored_geometry = self.restoreGeometry(
+                    QByteArray(base64.b64decode(geometry, validate=True))
+                )
             except ValueError:
                 pass
+        self._apply_compact_startup_geometry(restored_geometry)
         sizes = settings.get("splitter")
         if isinstance(sizes, list) and len(sizes) == 2 and all(isinstance(v, int) and v > 0 for v in sizes):
             self.splitter.setSizes(sizes)
@@ -270,26 +311,82 @@ class MainWindow(QMainWindow):
                 if key in self.tree_model.nodes:
                     self.tree.expand(self.tree_model.nodes[key].index())
         else:
-            # 首次打开分类，并展开第一个地图，避免 311 条目一次铺满。
-            self.tree.expandToDepth(0)
-            first = next((item for key, item in self.tree_model.nodes.items() if key.startswith("map:")), None)
-            if first is not None:
-                self.tree.expand(first.index())
+            # 没有展开历史时，所有层级默认收起。
+            self.tree.collapseAll()
+
+    def _apply_compact_startup_geometry(self, restored_geometry: bool):
+        """保留上次位置，但每次均以适合桌面常驻的普通小窗口启动。"""
+        self.setWindowState(Qt.WindowState.WindowNoState)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        if not restored_geometry:
+            return
+        available = self.screen().availableGeometry()
+        x = max(available.left(), min(self.x(), available.right() - self.width() + 1))
+        y = max(available.top(), min(self.y(), available.bottom() - self.height() + 1))
+        self.move(x, y)
+
     def _find_boss(self, boss_id: str) -> BossDefinition:
         return next(boss for boss in self.bosses if boss.id == boss_id)
 
     def _tree_context_menu(self, position):
         index = self.tree.indexAt(position)
         boss_id = index.data(BossTreeModel.BOSS_ROLE)
-        if not boss_id:
+        node_key = index.data(BossTreeModel.NODE_ROLE)
+        if not boss_id and not (isinstance(node_key, str) and node_key.startswith("map:")):
             return
         self.tree.setCurrentIndex(index)
-        boss = self._find_boss(boss_id)
         menu = QMenu(self)
-        action = menu.addAction("开始计时" if boss.sec > 0 else "开始计时（请先设置刷新时间）")
-        action.setEnabled(boss.sec > 0)
-        action.triggered.connect(lambda: self._start_boss(boss))
+        if boss_id:
+            boss = self._find_boss(boss_id)
+            action = menu.addAction("开始计时" if boss.sec > 0 else "开始计时（请先设置刷新时间）")
+            action.setEnabled(boss.sec > 0)
+            action.triggered.connect(lambda: self._start_boss(boss))
+        else:
+            action = menu.addAction("开始该地图全部计时")
+            checked_ids = self.tree_model.checked_ids()
+            action.setEnabled(any(boss.id in checked_ids and boss.sec > 0
+                                  for boss in self._bosses_below(index)))
+            action.triggered.connect(lambda: self._start_map_bosses(index))
         menu.exec(self.tree.viewport().mapToGlobal(position))
+
+    def _bosses_below(self, parent_index) -> list[BossDefinition]:
+        boss_ids: list[str] = []
+
+        def collect(index):
+            boss_id = index.data(BossTreeModel.BOSS_ROLE)
+            if boss_id:
+                boss_ids.append(boss_id)
+                return
+            for row in range(index.model().rowCount(index)):
+                collect(index.model().index(row, 0, index))
+
+        collect(parent_index)
+        bosses_by_id = {boss.id: boss for boss in self.bosses}
+        return [bosses_by_id[boss_id] for boss_id in boss_ids if boss_id in bosses_by_id]
+
+    def _start_map_bosses(self, map_index):
+        """将地图节点下已勾选的有效 BOSS 加入右侧，已有计时保持原状态。"""
+        self.timers.cleanup()
+        added = []
+        skipped_duplicates = 0
+        skipped_invalid = 0
+        checked_ids = self.tree_model.checked_ids()
+        for boss in self._bosses_below(map_index):
+            if boss.id not in checked_ids:
+                continue
+            try:
+                added.append(self.timers.start(boss))
+            except DuplicateBossError:
+                skipped_duplicates += 1
+            except TimerError:
+                skipped_invalid += 1
+        if added:
+            self._mark_dirty()
+        self._refresh_table()
+        if added:
+            self._select_entry(added[-1].id)
+        logger.info("地图批量开始：新增 %s，已存在 %s，无效时间 %s",
+                    len(added), skipped_duplicates, skipped_invalid)
 
     def _start_boss(self, boss: BossDefinition):
         self.timers.cleanup()
@@ -298,7 +395,7 @@ class MainWindow(QMainWindow):
         except DuplicateBossError as exc:
             self._refresh_table()
             self._select_entry(exc.entry_id)
-            QMessageBox.information(self, "计时已存在", str(exc))
+            show_notice(self, "计时已存在", str(exc))
             return
         except TimerError as exc:
             self._error(str(exc))
@@ -369,6 +466,27 @@ class MainWindow(QMainWindow):
             self._mark_dirty()
         self._refresh_table()
 
+    def _confirm_restart_timer(self, index):
+        if not index.isValid() or index.row() >= len(self.table_model.rows):
+            return
+        # 弹窗期间表格仍会刷新，必须捕获 ID，不能在确认后继续使用行号。
+        entry = self.table_model.rows[index.row()]
+        if not ask_confirmation(
+                self, "重新倒计时",
+                f"是否重新开始“{entry.name}”的倒计时？\n确认后将从 {entry.sec} 秒重新开始。"):
+            return
+        try:
+            if not self.timers.restart(entry.id):
+                self._error("该计时已被移除，请从左侧重新添加。")
+                return
+        except TimerError as exc:
+            self._error(str(exc))
+            return
+        self._mark_dirty()
+        self._refresh_table()
+        self._select_entry(entry.id)
+        logger.info("已重新开始倒计时：%s", entry.name)
+
     def _start_all(self):
         self.timers.cleanup()
         resumed = self.timers.start_all()
@@ -409,7 +527,7 @@ class MainWindow(QMainWindow):
 
     def _load_profile(self):
         if not self.profile_service.profiles:
-            QMessageBox.information(self, "加载配置", "暂无保存的配置。请先添加计时并保存配置。")
+            show_notice(self, "加载配置", "暂无保存的配置。请先添加计时并保存配置。")
             return
         dialog = LoadProfileDialog(self.profile_service.profiles, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -488,7 +606,7 @@ class MainWindow(QMainWindow):
                 return
 
     def _error(self, message: str):
-        QMessageBox.warning(self, "操作提示", message)
+        show_notice(self, "操作提示", message, QMessageBox.Icon.Warning)
 
     def closeEvent(self, event: QCloseEvent):
         # 关闭不再询问保存计时方案；目录勾选和窗口设置仍正常落盘。

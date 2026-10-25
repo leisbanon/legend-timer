@@ -59,6 +59,17 @@ class TimerService:
         entry.paused_remaining = None
         return True
 
+    def restart(self, entry_id: str) -> bool:
+        """保留原条目 ID，从完整刷新间隔重新开始，适用于所有计时状态。"""
+        entry = self.entries.get(entry_id)
+        if entry is None:
+            return False
+        if entry.sec <= 0:
+            raise TimerError("请先设置大于 0 的刷新时间。")
+        entry.deadline = self.clock() + entry.sec
+        entry.paused_remaining = None
+        return True
+
     def pause_all(self) -> int:
         return sum(self.pause(entry_id) for entry_id in self.entries)
 

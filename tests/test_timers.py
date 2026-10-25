@@ -22,6 +22,22 @@ def test_duplicate_names_across_maps_and_missing_interval(clock):
     assert len(service.entries) == 1
 
 
+@pytest.mark.parametrize("state", ["running", "paused", "expired"])
+def test_restart_uses_full_interval_and_preserves_identity(clock, state):
+    service = TimerService(clock)
+    entry = service.start(boss(sec=60))
+    clock.advance(20)
+    if state == "paused":
+        service.pause(entry.id)
+    elif state == "expired":
+        clock.advance(50)
+    assert service.restart(entry.id)
+    assert entry.deadline == clock() + 60
+    assert entry.paused_remaining is None
+    assert entry.state(clock()) == TimerState.RUNNING
+    assert list(service.entries) == [entry.id]
+
+
 def test_pause_resume_does_not_count_time_while_paused(clock):
     service = TimerService(clock)
     entry = service.start(boss(sec=60))
