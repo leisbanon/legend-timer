@@ -6,7 +6,7 @@
 
 ## 直接运行
 
-双击 `dist/LegendTimer.exe`，无需另外安装 Python 或 PySide6。它是单文件 Windows x64 程序，可以单独复制到其他目录运行。
+双击 `dist/传奇BOSS计时器.exe`，无需另外安装 Python 或 PySide6。它是单文件 Windows x64 程序，可以单独复制到其他目录运行。
 
 源码环境已配置好时，也可双击项目根目录的 `start.bat`。
 
@@ -49,7 +49,7 @@
 
 保存采用同目录临时文件、完整写入后原子替换，失败时保留原文件。若配置损坏，程序提示具体路径，不会自动用空配置覆盖。恢复时先关闭程序，备份损坏文件，再把对应 `.bak` 复制回 `.json`。同一数据目录只允许运行一个实例，避免相互覆盖。
 
-可使用 `LegendTimer.exe --data-dir "D:\BossTimerData"` 指定其他数据目录。
+可使用 `传奇BOSS计时器.exe --data-dir "D:\BossTimerData"` 指定其他数据目录。
 
 ## 源码运行与构建
 
@@ -73,7 +73,7 @@ python -m venv .venv
 .\build.ps1
 ```
 
-构建脚本只执行打包，输出 `dist/LegendTimer.exe`；不自动运行测试或启动打包程序。`dist` 仅保留这一个可执行文件，说明文档保留在项目根目录。
+构建脚本只执行打包，输出 `dist/传奇BOSS计时器.exe`；不自动运行测试或启动打包程序。`dist` 仅保留这一个可执行文件，说明文档保留在项目根目录。
 
 若本机限制 PowerShell 脚本，可在项目目录执行：
 
