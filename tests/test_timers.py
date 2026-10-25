@@ -138,6 +138,27 @@ def test_restore_is_transactional_and_uses_latest_names(clock):
         assert service.entries[entry.id].name == "新版名称"
 
 
+def test_load_fresh_restarts_expired_and_paused_with_current_definitions(clock):
+    service = TimerService(clock)
+    definitions = [boss(sec=100), boss("魔龙教主", sec=60, boss_id="boss-2")]
+    service.start(definitions[0])
+    paused = service.start(definitions[1])
+    service.pause(paused.id)
+    payload = service.snapshot()
+    clock.advance(1000)
+    definitions[0] = replace(definitions[0], sec=150, id="new-id")
+    service.load_fresh(payload, definitions)
+    assert len(service.entries) == 2
+    for entry in service.entries.values():
+        assert entry.paused_remaining is None
+        assert entry.deadline == clock() + entry.sec
+    assert {entry.sec for entry in service.entries.values()} == {150, 60}
+    before = service.snapshot()
+    with pytest.raises(TimerError, match="未找到"):
+        service.load_fresh(payload, definitions[:1])
+    assert service.snapshot() == before
+
+
 def test_all_running_rows_are_saved(clock):
     service = TimerService(clock)
     entry = service.start(boss())

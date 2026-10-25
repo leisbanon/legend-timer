@@ -63,13 +63,6 @@ class TimerTableModel(QAbstractTableModel):
                 return QColor("#777777")
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignCenter
-        if role == Qt.ItemDataRole.ToolTipRole:
-            suffix = {
-                TimerState.RUNNING: "正在计时；右键可以暂停或删除。",
-                TimerState.PAUSED: "剩余时间已冻结；右键选择开启计时。",
-                TimerState.EXPIRED: "已刷新；到期 120 秒后自动删除。",
-            }[state]
-            return f"{entry.group} / {entry.map}\n{entry.tip}\n{suffix}"
         return None
 
     def refresh(self) -> bool:

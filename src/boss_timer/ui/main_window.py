@@ -530,44 +530,25 @@ class MainWindow(QMainWindow):
                                    delete_profile=self._delete_profile)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        if not self._confirm_discard():
-            return
-        # “先保存”可能修改了刚选中的同一方案，此时必须加载最新内容。
         profile = self.profile_service.find(dialog.selected_profile().id)
         if profile is None:
             self._error("该配置不存在，请重新选择。")
             return
         try:
-            removed = self.timers.restore(profile.timers, self.bosses)
+            self.timers.load_fresh(profile.timers, self.bosses)
         except TimerError as exc:
             self._error(str(exc))
             return
         self.active_profile_id = profile.id
-        self.dirty = bool(removed)
+        self.dirty = False
         self._refresh_table()
-        logger.info("已加载：%s；清理过期计时 %s 项", profile.name, removed)
+        logger.info("已加载并重新开始全部计时：%s", profile.name)
 
     def _delete_profile(self, profile_id: str):
         self.profile_service.delete(profile_id)
         if self.active_profile_id == profile_id:
             self.active_profile_id = None
         logger.info("已删除配置：%s", profile_id)
-
-    def _confirm_discard(self) -> bool:
-        if not self.dirty:
-            return True
-        box = QMessageBox(self)
-        box.setWindowTitle("尚未保存配置")
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setText("右侧列表有未保存的修改，是否先保存？")
-        save = box.addButton("保存", QMessageBox.ButtonRole.AcceptRole)
-        discard = box.addButton("放弃修改", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(save)
-        box.exec()
-        if box.clickedButton() == save:
-            return self._save_profile()
-        return box.clickedButton() == discard
 
     def _checked_changed(self):
         self.catalog_dirty = True

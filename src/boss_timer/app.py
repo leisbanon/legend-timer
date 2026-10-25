@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QStandardPaths, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from boss_timer.repositories.boss_repository import BossRepository
@@ -43,6 +44,7 @@ def main() -> int:
     app.setOrganizationName("")
     app.setApplicationName("LegendBossTimer")
     app.setApplicationDisplayName("传奇 BOSS 计时工具")
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "resources" / "icons" / "app.ico")))
     configure_application_font(app)
     configure_button_appearance(app)
     temporary = tempfile.TemporaryDirectory(prefix="boss-timer-smoke-") if args.smoke_test else None

@@ -111,6 +111,33 @@ class TimerService:
         # 右侧列表中的项目均为有效计时，保存方案时全部写入。
         return [entry.to_dict() for entry in self.sorted_entries()]
 
+    def load_fresh(self, payload: list[dict], definitions: list[BossDefinition]) -> None:
+        """按名单匹配当前资料，验证完成后统一从完整时长开始。"""
+        staged = TimerService(self.clock)
+        now = self.clock()
+        staged.clock = lambda: now
+        problems = []
+        for raw in payload:
+            if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+                problems.append("配置中的怪物名称格式无效")
+                continue
+            name = raw["name"]
+            matches = [boss for boss in definitions
+                       if name_key(boss.name) == name_key(name)
+                       and boss.map == raw.get("map", "")
+                       and boss.group == raw.get("group", "")]
+            location = " / ".join(filter(None, [raw.get("group"), raw.get("map"), name]))
+            if len(matches) != 1:
+                problems.append(f"{location}：未找到唯一匹配的 BOSS 资料")
+                continue
+            try:
+                staged.start(matches[0])
+            except TimerError as exc:
+                problems.append(f"{location}：{exc}")
+        if problems:
+            raise TimerError("无法加载该配置，当前列表已保留：\n" + "\n".join(problems))
+        self.entries = staged.entries
+
     def restore(self, payload: list[dict], definitions: list[BossDefinition]) -> int:
         """先完整验证再替换，损坏的方案不会清空当前列表。
 

@@ -434,10 +434,6 @@ def test_all_buttons_and_close_without_save_prompt(window, app, monkeypatch):
     QTest.mouseClick(button(window, "全部开始"), Qt.MouseButton.LeftButton)
     assert len(window.timers.entries) == 1
     assert next(iter(window.timers.entries.values())).paused_remaining is None
-    def unexpected_confirmation():
-        raise AssertionError("关闭窗口不应询问保存计时方案")
-
-    monkeypatch.setattr(window, "_confirm_discard", unexpected_confirmation)
     assert window.dirty
     assert window.close()
     assert not window.isVisible()
@@ -469,17 +465,19 @@ def test_edit_is_saved_and_keeps_deadline(window, monkeypatch):
     assert window.tree_model.boss_items[definition.id].text() == "编辑测试 BOSS"
 
 
-def test_load_reads_latest_profile_after_save_before_replace(window, monkeypatch):
+def test_load_replaces_unsaved_timers_without_confirmation(window, monkeypatch):
     window._start_boss(window.bosses[0])
     profile = window.profile_service.save("当前方案", window.timers.snapshot())
     window.active_profile_id = profile.id
     monkeypatch.setattr(LoadProfileDialog, "exec", lambda _: QDialog.DialogCode.Accepted)
 
-    def save_before_load():
-        window._start_boss(window.bosses[1])
-        window.profile_service.save(profile.name, window.timers.snapshot(), profile.id)
-        return True
+    window._start_boss(window.bosses[1])
+    assert window.dirty
 
-    monkeypatch.setattr(window, "_confirm_discard", save_before_load)
+    def unexpected_confirmation(_):
+        raise AssertionError("加载配置不应询问保存")
+
+    monkeypatch.setattr(QMessageBox, "exec", unexpected_confirmation)
     window._load_profile()
-    assert len(window.timers.entries) == 2
+    assert len(window.timers.entries) == 1
+    assert not window.dirty

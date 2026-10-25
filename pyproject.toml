@@ -19,7 +19,7 @@ legend-boss-timer = "boss_timer.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-boss_timer = ["resources/icons/*.svg"]
+boss_timer = ["resources/icons/*.svg", "resources/icons/*.png", "resources/icons/*.ico"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
