@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         title_font.setBold(False)
         catalog_title.setFont(title_font)
         title_palette = catalog_title.palette()
-        title_palette.setColor(QPalette.ColorRole.WindowText, QColor("#888888"))
+        title_palette.setColor(QPalette.ColorRole.WindowText, QColor("#000000"))
         catalog_title.setPalette(title_palette)
         catalog_title.setFixedHeight(26)
         catalog_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -512,7 +512,6 @@ class MainWindow(QMainWindow):
                 # 用户输入期间计时持续更新，保存确认瞬间的状态。
                 profile = self.profile_service.save(
                     dialog.name_edit.text(), self.timers.snapshot(),
-                    None if dialog.save_as_new.isChecked() else self.active_profile_id,
                 )
             except (ValueError, StorageError) as exc:
                 dialog.error_label.setText(str(exc))
@@ -527,7 +526,8 @@ class MainWindow(QMainWindow):
         if not self.profile_service.profiles:
             show_notice(self, "加载配置", "暂无保存的配置。请先添加计时并保存配置。")
             return
-        dialog = LoadProfileDialog(self.profile_service.profiles, self)
+        dialog = LoadProfileDialog(self.profile_service.profiles, self,
+                                   delete_profile=self._delete_profile)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         if not self._confirm_discard():
@@ -546,6 +546,12 @@ class MainWindow(QMainWindow):
         self.dirty = bool(removed)
         self._refresh_table()
         logger.info("已加载：%s；清理过期计时 %s 项", profile.name, removed)
+
+    def _delete_profile(self, profile_id: str):
+        self.profile_service.delete(profile_id)
+        if self.active_profile_id == profile_id:
+            self.active_profile_id = None
+        logger.info("已删除配置：%s", profile_id)
 
     def _confirm_discard(self) -> bool:
         if not self.dirty:

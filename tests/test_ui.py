@@ -42,6 +42,26 @@ def button(window, text):
     return next(b for b in window.findChildren(QPushButton) if b.text() == text)
 
 
+def test_delete_profile_by_id_preserves_same_name_and_current_timers(window):
+    window._start_boss(window.bosses[0])
+    payload = window.timers.snapshot()
+    first = window.profile_service.save("同名配置", payload)
+    second = window.profile_service.save("同名配置", payload)
+    window.active_profile_id = first.id
+    dialog = LoadProfileDialog(window.profile_service.profiles, window,
+                               delete_profile=window._delete_profile)
+    dialog._delete_profile(first.id)
+    assert [p.id for p in dialog.profiles] == [second.id]
+    assert [p.id for p in window.profile_service.repository.load()] == [second.id]
+    assert window.active_profile_id is None
+    assert window.timers.snapshot() == payload
+    dialog._delete_profile(second.id)
+    assert dialog.table.rowCount() == 0
+    assert not dialog.load_button.isEnabled()
+    assert window.profile_service.repository.load() == []
+    dialog.close()
+
+
 def test_startup_uses_compact_normal_window_even_after_maximized_session(
         window, app, tmp_path, clock):
     window.showMaximized()
@@ -338,7 +358,7 @@ def test_remaining_header_toggles_sort_direction(window, app):
     assert [entry.id for entry in window.table_model.rows] == ascending
 
 
-def test_save_modify_save_as_and_load_dialog_flow(window, monkeypatch):
+def test_save_always_creates_new_profile_and_load_dialog_flow(window, monkeypatch):
     window._start_boss(window.bosses[0])
 
     def first_save(dialog):
@@ -351,20 +371,26 @@ def test_save_modify_save_as_and_load_dialog_flow(window, monkeypatch):
     assert first_id and not window.dirty
     window._start_boss(window.bosses[1])
     assert window._save_profile()
-    assert window.active_profile_id == first_id
-    assert len(window.profile_service.profiles) == 1
-    assert len(window.profile_service.find(first_id).timers) == 2
+    assert window.active_profile_id != first_id
+    assert len(window.profile_service.profiles) == 2
+    assert len(window.profile_service.find(first_id).timers) == 1
 
     def save_as(dialog):
         dialog.name_edit.setText("另存方案")
-        dialog.save_as_new.setChecked(True)
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(SaveProfileDialog, "exec", save_as)
     assert window._save_profile()
     assert window.active_profile_id != first_id
-    assert len(window.profile_service.profiles) == 2
-    monkeypatch.setattr(LoadProfileDialog, "exec", lambda _: QDialog.DialogCode.Accepted)
+    assert len(window.profile_service.profiles) == 3
+    def load_latest(dialog):
+        dialog.table.selectRow(next(
+            row for row, profile in enumerate(dialog.profiles)
+            if profile.id == window.active_profile_id
+        ))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(LoadProfileDialog, "exec", load_latest)
     window._load_profile()
     assert len(window.timers.entries) == 2
     assert not window.dirty

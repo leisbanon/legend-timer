@@ -17,6 +17,11 @@ class ProfileService:
     def find(self, profile_id: str | None) -> Profile | None:
         return next((p for p in self.profiles if p.id == profile_id), None)
 
+    def delete(self, profile_id: str) -> None:
+        updated = [p for p in self.profiles if p.id != profile_id]
+        self.repository.save(updated)
+        self.profiles = updated
+
     def save(self, name: str, timers: list[dict], profile_id: str | None = None) -> Profile:
         name = name.strip()
         if not name:
@@ -27,8 +32,6 @@ class ProfileService:
             raise ValueError("请至少勾选一条计时后保存。")
         if profile_id is not None and self.find(profile_id) is None:
             raise ValueError("原配置不存在，请另存为新配置。")
-        if any(p.name == name and p.id != profile_id for p in self.profiles):
-            raise ValueError("已有同名配置，请换一个名称。")
         now = self.clock()
         previous = self.find(profile_id)
         profile = Profile(previous.id if previous else str(uuid4()), name,

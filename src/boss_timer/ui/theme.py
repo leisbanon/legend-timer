@@ -63,6 +63,15 @@ class SimpleCheckboxStyle(QProxyStyle):
         return super().pixelMetric(metric, option, widget)
 
     def drawPrimitive(self, element, option, painter, widget=None):
+        # QTreeView 在委托之外单独绘制整行背景，包含左侧缩进区域。
+        # 该区域不经过 FlatRowDelegate，因此在这里移除原生悬浮底色。
+        if (self._suppress_focus_frame and
+                element == QStyle.PrimitiveElement.PE_PanelItemViewRow):
+            if not option.state & QStyle.StateFlag.State_Selected:
+                return
+            row_option = QStyleOptionViewItem(option)
+            row_option.state &= ~QStyle.StateFlag.State_MouseOver
+            return super().drawPrimitive(element, row_option, painter, widget)
         # Windows 原生样式会在当前条目外再绘制一圈深色焦点框。
         # 列表已用整行蓝色清楚表达当前位置，因此此处仅省略该装饰。
         if (self._suppress_focus_frame and
@@ -153,6 +162,11 @@ def configure_tree_appearance(tree) -> None:
     open_icon = (icon_dir / "branch_open_selected.svg").as_posix()
     tree.setStyleSheet(tree.styleSheet() + f"""
         QTreeView {{ show-decoration-selected: 1; }}
+        QTreeView::item:hover:!selected,
+        QTreeView::branch:hover:!selected {{
+            background-color: transparent;
+            border: 0px;
+        }}
         QTreeView::branch:selected {{ background-color: {BLUE}; }}
         QTreeView::branch:has-children:closed {{
             image: url("{normal_closed_icon}");

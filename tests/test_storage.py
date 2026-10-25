@@ -148,8 +148,9 @@ def test_profile_create_update_save_as_and_persistence(tmp_path, clock):
     copy = service.save("另一条路线", updated.timers)
     assert copy.id != updated.id
     assert repo.load() == [updated, copy]
-    with pytest.raises(ValueError):
-        service.save("另一条路线", updated.timers)
+    same_name = service.save("另一条路线", updated.timers)
+    assert same_name.id != copy.id
+    assert repo.load() == [updated, copy, same_name]
     with pytest.raises(ValueError):
         service.save("", updated.timers)
     with pytest.raises(ValueError):
