@@ -42,6 +42,89 @@ def button(window, text):
     return next(b for b in window.findChildren(QPushButton) if b.text() == text)
 
 
+def test_added_timers_stay_unselected_and_row_click_toggles_selection(window, app, clock):
+    window._start_boss(replace(window.bosses[0], sec=60))
+    window._start_boss(replace(window.bosses[1], sec=120))
+    app.processEvents()
+    selection = window.table.selectionModel()
+    assert not selection.selectedRows()
+    index = window.table_model.index(0, 0)
+    position = window.table.visualRect(index).center()
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    assert [item.row() for item in selection.selectedRows()] == [0]
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    assert not selection.selectedRows()
+    window._toggle_remaining_sort(3)
+    clock.advance(1)
+    window._tick()
+    assert not selection.selectedRows()
+    position = window.table.visualRect(window.table_model.index(0, 1)).center()
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    position = window.table.visualRect(window.table_model.index(1, 2)).center()
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    assert [item.row() for item in selection.selectedRows()] == [1]
+
+
+def test_small_window_wraps_actions_and_allows_either_pane_to_collapse(window, app):
+    window.resize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
+    app.processEvents()
+    assert window.width() == MINIMUM_WINDOW_WIDTH
+    assert window.height() == MINIMUM_WINDOW_HEIGHT
+    assert button(window, "全部开始").font().pointSize() == 9
+    central = window.centralWidget()
+    for index in range(window.header_flow.count()):
+        widget = window.header_flow.itemAt(index).widget()
+        assert central.rect().contains(widget.geometry())
+        assert widget.geometry().bottom() < window.splitter.y()
+    assert button(window, "重置配置").y() > window.topmost_checkbox.mapTo(
+        central, QPoint(0, 0)).y()
+    window.splitter.setSizes([0, 400])
+    app.processEvents()
+    assert window.splitter.sizes()[0] == 0
+    window.splitter.moveSplitter(window.splitter.width(), 1)
+    app.processEvents()
+    assert window.splitter.sizes()[1] == 0
+    window.splitter.setSizes([90, 310])
+    assert 0 < window.splitter.sizes()[0] < 245
+
+
+def test_restores_user_window_size_and_collapsed_catalog(window, app, tmp_path, clock):
+    window.resize(640, 360)
+    window.splitter.setSizes([0, 600])
+    app.processEvents()
+    window.close()
+    restored = MainWindow(
+        BossRepository(tmp_path / "other_catalog.json", resource_path()),
+        ProfileService(ProfileRepository(tmp_path / "other_profiles.json"), clock),
+        TimerService(clock), window.settings_store,
+    )
+    restored.show()
+    app.processEvents()
+    try:
+        assert (restored.width(), restored.height()) == (640, 360)
+        assert restored.splitter.sizes()[0] == 0
+    finally:
+        restored.close()
+
+
+def test_header_hint_follows_topmost_and_centers_controls(window, app):
+    window.resize(1400, 440)
+    app.processEvents()
+    for left_width in (240, 360):
+        window.splitter.moveSplitter(left_width, 1)
+        app.processEvents()
+        app.processEvents()
+        cleanup = window.cleanup_seconds_input.parentWidget()
+        assert window.topmost_checkbox.parentWidget() is cleanup
+        assert cleanup.x() == window.header_flow.geometry().x()
+        controls = [window.topmost_checkbox, cleanup, button(window, "全部开始")]
+        centers = [control.mapTo(window.centralWidget(), control.rect().center()).y()
+                   for control in controls]
+        assert max(centers) - min(centers) <= 1
+        last_button = button(window, "重置配置")
+        assert last_button.geometry().right() == window.header_flow.geometry().right()
+
+
 def test_cleanup_delay_edit_applies_to_expired_rows_and_is_saved(window, clock):
     window._start_boss(replace(window.bosses[0], sec=10))
     clock.advance(70)
@@ -154,12 +237,12 @@ def test_reset_defaults_requires_confirmation_and_restores_disk_and_ui(window, a
     assert window.catalog_save_timer.isActive()
 
     monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Cancel)
-    QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
+    QTest.mouseClick(button(window, "重置配置"), Qt.MouseButton.LeftButton)
     assert window.timers.entries
     assert window.profile_service.profiles
 
     monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Ok)
-    QTest.mouseClick(button(window, "恢复默认配置"), Qt.MouseButton.LeftButton)
+    QTest.mouseClick(button(window, "重置配置"), Qt.MouseButton.LeftButton)
     app.processEvents()
     assert window.bosses[0] == default_boss
     assert not window.catalog_save_timer.isActive()

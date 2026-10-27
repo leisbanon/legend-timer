@@ -8,9 +8,9 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QCloseEvent, QPalette
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel,
     QMainWindow, QMenu, QMessageBox, QPushButton, QSpinBox, QSplitter, QStyle,
-    QStyleOptionViewItem, QTableView, QTreeView, QVBoxLayout, QWidget,
+    QSizePolicy, QStyleOptionViewItem, QTableView, QTreeView, QVBoxLayout, QWidget,
 )
 
 from boss_timer.domain.models import BossDefinition, TimerState
@@ -21,6 +21,8 @@ from boss_timer.services.timer_service import DuplicateBossError, TimerError, Ti
 from boss_timer.services.local_data import clear_local_config
 from boss_timer.ui.dialogs.boss_editor import BossEditorDialog
 from boss_timer.ui.dialogs.profile_dialogs import LoadProfileDialog, SaveProfileDialog
+from boss_timer.ui.flow_layout import FlowLayout
+from boss_timer.ui.timer_table_view import TimerTableView
 from boss_timer.ui.messages import ask_confirmation, show_notice
 from boss_timer.ui.models.boss_tree import BossTreeModel
 from boss_timer.ui.models.timer_table import TimerTableModel
@@ -32,11 +34,11 @@ from boss_timer.ui.theme import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_WINDOW_WIDTH = 900
-DEFAULT_WINDOW_HEIGHT = 560
-MINIMUM_WINDOW_WIDTH = 760
-MINIMUM_WINDOW_HEIGHT = 460
-DEFAULT_SPLITTER_SIZES = [245, 631]
+DEFAULT_WINDOW_WIDTH = 720
+DEFAULT_WINDOW_HEIGHT = 440
+MINIMUM_WINDOW_WIDTH = 420
+MINIMUM_WINDOW_HEIGHT = 280
+DEFAULT_SPLITTER_SIZES = [190, 516]
 
 
 class MainWindow(QMainWindow):
@@ -76,56 +78,31 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(6, 12, 6, 8)
-        layout.setSpacing(12)
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
-        for text, handler, tip in [
-            ("全部开始", self._start_all, "恢复右侧列表中所有暂停的计时"),
-            ("全部暂停", self._pause_all, "暂停右侧所有正在运行的计时"),
-            ("保存配置", self._save_profile, "保存右侧全部计时项目"),
-            ("加载配置", self._load_profile, "从本地保存的配置中选择并加载"),
-            ("恢复默认配置", self._reset_defaults, "恢复默认 BOSS 资料，并清空计时、方案及窗口设置"),
-        ]:
-            button = QPushButton(text)
-            button_font = button.font()
-            button_font.setPointSize(8)
-            button.setFont(button_font)
-            button.setFixedHeight(26)
-            button.setFixedWidth(button.fontMetrics().horizontalAdvance(text) + 18)
-            button.setToolTip(tip)
-            button.clicked.connect(handler)
-            toolbar.addWidget(button)
+        layout.setContentsMargins(4, 6, 4, 6)
+        layout.setSpacing(6)
+        self.header_flow = FlowLayout(spacing=6)
+        layout.addLayout(self.header_flow)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setChildrenCollapsible(False)
-        # 两个控件自身各有边框；2 像素分隔条与 6 像素外边距形成相同的可见留白。
+        self.splitter.setChildrenCollapsible(True)
+        # 中间分隔条收窄为 2 像素，仍可拖动收起。
         self.splitter.setHandleWidth(2)
         layout.addWidget(self.splitter, 1)
         left = QWidget()
-        left.setMinimumWidth(245)
+        left.setMinimumWidth(0)
+        left.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
-        catalog_title = QLabel("BOSS 地图目录")
-        title_font = catalog_title.font()
-        title_font.setPointSize(8)
+        title_font = self.font()
+        title_font.setPointSize(9)
         title_font.setBold(False)
-        catalog_title.setFont(title_font)
-        title_palette = catalog_title.palette()
+        title_palette = self.palette()
         title_palette.setColor(QPalette.ColorRole.WindowText, QColor("#000000"))
-        catalog_title.setPalette(title_palette)
-        catalog_title.setFixedHeight(26)
-        catalog_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        left_header = QHBoxLayout()
-        left_header.addWidget(catalog_title)
         self.topmost_checkbox = QCheckBox("置顶")
         self.topmost_checkbox.setFont(title_font)
         self.topmost_checkbox.setChecked(True)
         configure_checkbox_appearance(self.topmost_checkbox)
         self.topmost_checkbox.toggled.connect(self._set_topmost)
-        left_header.addWidget(self.topmost_checkbox)
-        left_header.addStretch()
-        left_layout.addLayout(left_header)
         self.tree = QTreeView()
         self.tree_model = BossTreeModel(self.bosses, self)
         self.tree.setModel(self.tree_model)
@@ -144,18 +121,28 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.tree, 1)
         self.splitter.addWidget(left)
         right = QWidget()
+        right.setMinimumWidth(0)
+        right.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        timer_hint = QLabel("按剩余时间自动排序；标红后")
+        timer_hint = QLabel("标红")
         timer_hint.setFont(title_font)
         timer_hint.setPalette(title_palette)
         timer_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        right_header = QHBoxLayout()
-        right_header.setContentsMargins(0, 0, 0, 0)
-        right_header.setSpacing(8)
-        cleanup_layout = QHBoxLayout()
+        cleanup_group = QWidget()
+        cleanup_layout = QHBoxLayout(cleanup_group)
+        cleanup_layout.setContentsMargins(0, 0, 0, 0)
         cleanup_layout.setSpacing(3)
+        cleanup_layout.addWidget(self.topmost_checkbox)
+        cleanup_layout.addSpacing(7)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Plain)
+        separator.setForegroundRole(QPalette.ColorRole.Shadow)
+        separator.setFixedSize(1, max(12, self.topmost_checkbox.fontMetrics().height() - 2))
+        cleanup_layout.addWidget(separator, 0, Qt.AlignmentFlag.AlignVCenter)
+        cleanup_layout.addSpacing(7)
         cleanup_layout.addWidget(timer_hint)
         self.cleanup_seconds_input = QSpinBox()
         self.cleanup_seconds_input.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
@@ -163,19 +150,27 @@ class MainWindow(QMainWindow):
         self.cleanup_seconds_input.setValue(TimerService.CLEANUP_SECONDS)
         self.cleanup_seconds_input.setKeyboardTracking(False)
         self.cleanup_seconds_input.setFont(title_font)
-        self.cleanup_seconds_input.setFixedWidth(62)
-        self.cleanup_seconds_input.setFixedHeight(24)
+        self.cleanup_seconds_input.setFixedWidth(50)
         self.cleanup_seconds_input.valueChanged.connect(self._set_cleanup_seconds)
         cleanup_layout.addWidget(self.cleanup_seconds_input)
-        cleanup_suffix = QLabel("秒消失")
+        cleanup_suffix = QLabel("秒后移除")
         cleanup_suffix.setFont(title_font)
         cleanup_suffix.setPalette(title_palette)
         cleanup_layout.addWidget(cleanup_suffix)
-        right_header.addLayout(cleanup_layout)
-        right_header.addStretch()
-        right_header.addLayout(toolbar)
-        right_layout.addLayout(right_header)
-        self.table = QTableView()
+        self.header_flow.addWidget(cleanup_group)
+        for text, handler, tip in [
+            ("全部开始", self._start_all, "恢复右侧列表中所有暂停的计时"),
+            ("全部暂停", self._pause_all, "暂停右侧所有正在运行的计时"),
+            ("保存配置", self._save_profile, "保存右侧全部计时项目"),
+            ("加载配置", self._load_profile, "从本地保存的配置中选择并加载"),
+            ("重置配置", self._reset_defaults, "恢复默认 BOSS 资料，并清空计时、方案及窗口设置"),
+        ]:
+            button = QPushButton(text)
+            button.setFont(title_font)
+            button.setToolTip(tip)
+            button.clicked.connect(handler)
+            self.header_flow.addWidget(button, Qt.AlignmentFlag.AlignRight)
+        self.table = TimerTableView()
         self.table_model = TimerTableModel(self.timers, self)
         self.table.setModel(self.table_model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -189,10 +184,11 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()
         header_font = header.font()
+        header_font.setPointSize(title_font.pointSize())
         header_font.setBold(False)
         header.setFont(header_font)
         header.setStyleSheet("QHeaderView::section { font-weight: normal; }")
-        header.setMinimumSectionSize(100)
+        header.setMinimumSectionSize(80)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(False)
@@ -214,7 +210,7 @@ class MainWindow(QMainWindow):
 
     def _reset_defaults(self):
         confirmed = ask_confirmation(
-            self, "恢复默认配置",
+            self, "重置配置",
             "将恢复默认 BOSS 信息与勾选状态，清空右侧计时和所有已保存方案，"
             "并重置窗口布局、菜单展开历史及排序。\n"
             "本地新旧目录中的配置、缓存和备份将被清除。是否继续？",
@@ -332,9 +328,11 @@ class MainWindow(QMainWindow):
                 )
             except ValueError:
                 pass
-        self._apply_compact_startup_geometry(restored_geometry)
-        sizes = settings.get("splitter")
-        if isinstance(sizes, list) and len(sizes) == 2 and all(isinstance(v, int) and v > 0 for v in sizes):
+        current_layout = settings.get("compact_layout_version") == 1
+        self._apply_compact_startup_geometry(restored_geometry, current_layout)
+        sizes = settings.get("splitter") if current_layout else None
+        if (isinstance(sizes, list) and len(sizes) == 2
+                and all(type(v) is int and v >= 0 for v in sizes) and any(sizes)):
             self.splitter.setSizes(sizes)
         expanded = settings.get("expanded")
         if isinstance(expanded, list):
@@ -358,10 +356,11 @@ class MainWindow(QMainWindow):
         if visible:
             self.show()
 
-    def _apply_compact_startup_geometry(self, restored_geometry: bool):
-        """保留上次位置，但每次均以适合桌面常驻的普通小窗口启动。"""
+    def _apply_compact_startup_geometry(self, restored_geometry: bool, current_layout: bool):
+        """恢复用户调整后的普通窗口大小，首次启动使用紧凑尺寸。"""
         self.setWindowState(Qt.WindowState.WindowNoState)
-        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        if not restored_geometry or not current_layout:
+            self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         if not restored_geometry:
             return
         available = self.screen().availableGeometry()
@@ -427,8 +426,6 @@ class MainWindow(QMainWindow):
         if added:
             self._mark_dirty()
         self._refresh_table()
-        if added:
-            self._select_entry(added[-1].id)
         logger.info("地图批量开始：新增 %s，已存在 %s，无效时间 %s",
                     len(added), skipped_duplicates, skipped_invalid)
 
@@ -446,7 +443,6 @@ class MainWindow(QMainWindow):
             return
         self._mark_dirty()
         self._refresh_table()
-        self._select_entry(entry.id)
         logger.info("已开始：%s · %s", entry.map, entry.name)
 
     def _edit_boss(self, index):
@@ -622,9 +618,10 @@ class MainWindow(QMainWindow):
         self._refresh_table()
 
     def _refresh_table(self):
-        current = self.table.currentIndex()
+        selected = self.table.selectionModel().selectedRows()
+        current = selected[0] if selected else None
         selected_id = (self.table_model.rows[current.row()].id
-                       if current.isValid() and current.row() < len(self.table_model.rows) else None)
+                       if current is not None and current.row() < len(self.table_model.rows) else None)
         if self.table_model.refresh() and selected_id:
             self._select_entry(selected_id, scroll=False)
 
@@ -648,6 +645,7 @@ class MainWindow(QMainWindow):
         try:
             self.settings_store.write({
                 "geometry": base64.b64encode(bytes(self.saveGeometry())).decode("ascii"),
+                "compact_layout_version": 1,
                 "splitter": self.splitter.sizes(),
                 "topmost": self.topmost_checkbox.isChecked(),
                 "cleanup_seconds": self.cleanup_seconds_input.value(),
