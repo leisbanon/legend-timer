@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_context_menu)
         self.table.doubleClicked.connect(self._confirm_restart_timer)
-        configure_table_appearance(self.table)
+        configure_table_appearance(self.table, highlight_selection=False)
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()

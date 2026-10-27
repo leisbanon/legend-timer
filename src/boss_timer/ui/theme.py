@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication, QHeaderView, QProxyStyle, QStyle, QStyledItemDelegate,
@@ -119,11 +120,23 @@ def configure_checkbox_appearance(widget, *, suppress_focus_frame: bool = False)
 class FlatRowDelegate(QStyledItemDelegate):
     """保留 Qt 的文字、复选框和状态色绘制，移除单元格焦点边框。"""
 
+    def __init__(self, parent=None, *, highlight_selection=True):
+        super().__init__(parent)
+        self.highlight_selection = highlight_selection
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if (not self.highlight_selection
+                and index.row() == getattr(self.parent(), "hovered_row", -1)):
+            option.backgroundBrush = QBrush(QColor("#f2f2f2"))
+
     def paint(self, painter, option, index):
         flat_option = QStyleOptionViewItem(option)
         flat_option.state &= ~QStyle.StateFlag.State_HasFocus
         # 鼠标经过只用于定位和提示，不绘制类似“已选中”的灰色背景。
         flat_option.state &= ~QStyle.StateFlag.State_MouseOver
+        if not self.highlight_selection:
+            flat_option.state &= ~QStyle.StateFlag.State_Selected
         flat_option.showDecorationSelected = True
         super().paint(painter, flat_option, index)
 
@@ -187,10 +200,11 @@ def configure_tree_appearance(tree) -> None:
     tree.header().setStretchLastSection(True)
 
 
-def configure_table_appearance(table) -> None:
+def configure_table_appearance(table, *, highlight_selection=True) -> None:
     configure_checkbox_appearance(table, suppress_focus_frame=True)
-    _configure_selection(table, "QTableView")
-    table.setItemDelegate(FlatRowDelegate(table))
+    if highlight_selection:
+        _configure_selection(table, "QTableView")
+    table.setItemDelegate(FlatRowDelegate(table, highlight_selection=highlight_selection))
     table.setAlternatingRowColors(False)
     table.setShowGrid(False)
     header = table.verticalHeader()
