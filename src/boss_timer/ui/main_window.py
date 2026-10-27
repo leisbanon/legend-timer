@@ -656,6 +656,11 @@ class MainWindow(QMainWindow):
             self._error(str(exc))
             event.ignore()
             return
+        tray = getattr(self, "tray_controller", None)
+        if tray is not None and not tray.exiting:
+            self.hide()
+            event.ignore()
+            return
         self.tick_timer.stop()
         self.catalog_save_timer.stop()
         event.accept()

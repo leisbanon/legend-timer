@@ -21,6 +21,7 @@ from boss_timer.ui.fonts import configure_application_font
 from boss_timer.ui.messages import show_notice
 from boss_timer.ui.theme import configure_button_appearance
 from boss_timer.ui.main_window import MainWindow
+from boss_timer.ui.tray import enable_tray
 
 
 def resource_path() -> Path:
@@ -86,6 +87,8 @@ def main() -> int:
                     QMessageBox.Icon.Critical)
 
     sys.excepthook = exception_hook
+    if not args.smoke_test:
+        enable_tray(window, app.windowIcon())
     window.show()
     smoke_result = [0]
     if args.smoke_test:
